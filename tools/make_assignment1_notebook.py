@@ -66,7 +66,7 @@ pd.DataFrame({'gross': S_fac, 'window': S_win, 'opaque': S_wall}).round(1)"""),
    $f = \\dot Q_{occ} + \\dot Q_{equip} + \\dot Q_{light}$.
 10. Ventilation per zone: supply/exhaust with heat recovery $\\eta = 0.75$ (assumption) plus infiltration, one
    advection branch from $T_o$: $G_v = \\rho c\\,[(1-\\eta)\\dot V_{mech} + \\dot V_{inf}]$ (SIA 2024:
-   29 m³/(h·P), 14 m²/P, 0.15 m³/(h·m²)).
+   29 m³/(h·P), 14 m²/P, 0.15 m³/(h·m²)); heat-recovery bypass and night ventilation in summer added in Assignment 4).
 11. Zone coupling through the concrete interior wall (convection, conduction, long-wave on both sides) and the
     closed door ($U \\cdot S$). No air exchange between zones (assumption: door closed, balanced ventilation).
 12. HVAC: P-controller per zone, $q_{HVAC} = K_p (T_{sp} - \\theta_a)$, set-point $T_{sp}$ as temperature source

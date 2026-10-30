@@ -51,6 +51,8 @@ equation of time neglected), so the time is shifted by that; otherwise east woul
 direct radiation. Second, the ground-reflected part uses $1 - \\cos\\beta / 2$ instead of the view factor
 $(1 - \\cos\\beta)/2$ (Duffie & Beckman), which doubles it on the façades, so it is corrected."""),
     code("""weather, meta = dm4bem.read_epw('daten/CHE_GR_Chur.067860_TMYx.2004-2018.epw', coerce_year=year)
+p_v = 611.2 * np.exp(17.62 * weather['temp_dew'] / (243.12 + weather['temp_dew']))   # Pa, vapour pressure (Magnus)
+w_o = 0.622 * p_v / (weather['atmospheric_pressure'] - p_v)                             # kg/kg, humidity ratio
 weather = weather[['temp_air', 'dir_n_rad', 'dif_h_rad']]
 albedo = 0.2
 surfaces = {'S': (90, 0), 'E': (90, -90), 'W': (90, 90), 'N': (90, 180), 'roof': (0, 0)}   # slope, azimuth
@@ -65,10 +67,11 @@ for o, (slope, azimuth) in surfaces.items():
     cb = np.cos(np.radians(slope))
     rad['reflected'] *= ((1 - cb) / 2) / (1 - cb / 2)         # view factor to the ground (see above)
     E[o] = rad.sum(axis=1)
-weather = pd.DataFrame({'T_o': weather['temp_air'], **{f'E_{o}': e for o, e in E.items()}})
+weather = pd.DataFrame({'T_o': weather['temp_air'], **{f'E_{o}': e for o, e in E.items()}, 'w_o': w_o})
 weather.index = weather.index.tz_localize(None)
 print(f'latitude {meta["latitude"]}°, T_o mean {weather["T_o"].mean():.1f} °C, '
       f'min {weather["T_o"].min():.1f} °C, max {weather["T_o"].max():.1f} °C')
+print(f'humidity ratio outdoors: mean {1e3 * w_o.mean():.1f} g/kg, max {1e3 * w_o.max():.1f} g/kg')
 (weather.filter(like='E_').sum() / 1000).round(0).rename('solar irradiation, kWh/(m²·a)').to_frame().T"""),
     md("""### Resampling and warm-up
 
@@ -195,6 +198,18 @@ $$\\theta_{C,k+1} = \\Phi\\,\\theta_{C,k} + \\Gamma u_k, \\qquad \\Phi = (I - \\
 $q_{HVAC} = K_p (T_{sp} - \\theta_{air})$ is evaluated with the air temperature at the end of the step; the
 controller decides on the measured air temperature at the start of the step.
 
+The ventilation of Assignment 1 runs day and night with heat recovery. Two summer measures are added
+(assumptions), decided for the whole building from the mean air temperature $\\bar\\theta$ of both zones at the
+start of the step, only when $T_{o,24h}$ > 12 °C (as for the blinds) and $\\bar\\theta$ > 22 °C:
+
+| Mode | When | $G_v$ per zone |
+|---|---|---|
+| normal | otherwise | $\\rho c\\,[(1-\\eta)\\dot V_{mech} + \\dot V_{inf}]$ |
+| heat-recovery bypass | $T_o < \\bar\\theta$ | $\\rho c\\,(\\dot V_{mech} + \\dot V_{inf})$, $\\eta = 0$ |
+| night ventilation | as bypass, not occupied and $T_o < \\bar\\theta - 2$ K; once on, it runs down to $\\bar\\theta$ = 21 °C, then the windows stay shut until morning | bypass + motorised windows, 2 air changes per hour |
+
+The ventilation only changes $G$: 3 ventilation modes × 4 controller states = 12 models.
+
 `simulate` has two controllers (MPC in section 6). The P-controller of Assignments 1–3 is always on with the
 heating set-point, so it also cools whenever the air is above it. The dead-band controller (as in tutorial
 05SwitchModels) switches a zone on with $T_{sp} = T_h$ below $T_h$, with $T_{sp} = T_c$ above $T_c$, and off in
@@ -202,29 +217,45 @@ between."""),
     code("""K_on = 1e5                                                       # W/K, gain of the P-controller when on
 
 
-def discrete(on1, on2, dt_=dt):
-    \"\"\"Implicit Euler model with the controller of zone 1 / zone 2 on (1) or off (0).\"\"\"
+k_vent = [k for k in bT if src[k] == 'T_o' and branches[k][1] in (air1, air2)]   # ventilation branches
+n_night = 2.0                                                    # 1/h, night ventilation by windows (assumption)
+V_vent = {'normal': V_mech + V_inf, 'bypass': V_mech + V_inf,
+          'night': V_mech + V_inf + n_night * V_air}             # m³/h per zone
+G_vent = {'normal': G_v, 'bypass': rho_c_air / 3600 * (V_mech + V_inf),
+          'night': rho_c_air / 3600 * V_vent['night']}           # W/K per zone
+
+
+def discrete(on1, on2, vent='normal', dt_=dt):
+    \"\"\"Implicit Euler model with the controller of zone 1 / zone 2 on (1) or off (0) and a ventilation mode.\"\"\"
     G_K = G.copy()
     G_K[k_ctrl[0], k_ctrl[0]] = K_on * on1
     G_K[k_ctrl[1], k_ctrl[1]] = K_on * on2
+    for k in k_vent:
+        G_K[k, k] = G_vent[vent]
     As, Bs, Cs, Ds = dm4bem.tc2ss(A, G_K, C, b_ptr, f_ptr, y_ptr)
     Phi = np.linalg.inv(np.eye(len(As)) - dt_ * As)
     return {'Phi': Phi, 'Gam': Phi @ (dt_ * Bs), 'Cs': Cs}
 
 
 models = {(i, j): discrete(i, j) for i in (0, 1) for j in (0, 1)}
+models_v = {(i, j, v): discrete(i, j, v) for i in (0, 1) for j in (0, 1) for v in G_vent}
 Cs = models[(0, 0)]['Cs']                                        # same in all models: the air nodes are states
+print(', '.join(f'{v}: G_v = {G_vent[v]:.0f} W/K' for v in G_vent))
 
 
-def simulate(control, U, x0, k_start=0, k_end=None, mods=models, sched=None):
+def simulate(control, U, x0, k_start=0, k_end=None, mods=models, sched=None, vent=False):
     \"\"\"Simulation from step k_start to k_end. Returns y (air °C), q_HVAC (W) per zone and the states.
 
-    sched = (T_h, T_c, occupied) on the time axis of U; default: the 15-min schedules.\"\"\"
+    sched = (T_h, T_c, occupied) on the time axis of U; default: the 15-min schedules.
+    vent = True: bypass and night ventilation (15-min time axis only).\"\"\"
     T_h, T_c, occupied = sched or (globals()['T_h'], globals()['T_c'], globals()['occupied'])
     Ua = U.to_numpy()
     k_end = k_end or len(Ua)
     m_ = k_end - k_start
     y, q, X = np.zeros((m_, 2)), np.zeros((m_, 2)), np.zeros((m_, len(x0)))
+    modes = np.full(m_, 'normal', dtype=object)
+    T_o = Ua[:, jb[k_vent[0]]]
+    done = False
     x = x0.copy()
     for i, k in enumerate(range(k_start, k_end)):
         X[i] = x
@@ -240,6 +271,18 @@ def simulate(control, U, x0, k_start=0, k_end=None, mods=models, sched=None):
                     on[j], sp[j] = 1, T_c[k]
             on = tuple(on)
         m = mods[on]
+        if vent:
+            θm = θ_k.mean()
+            if occupied[k]:
+                done = False                                     # night ventilation allowed again next night
+            if T_o24[k] > 12 and θm > 22 and T_o[k] < θm:
+                modes[i] = 'bypass'
+            if T_o24[k] > 12 and not occupied[k] and not done and T_o[k] < θm - 2:
+                if i > 0 and modes[i - 1] == 'night' and θm < 21:
+                    done = True                                  # stopped at 21 °C: windows stay shut this night
+                elif θm > 22 or (i > 0 and modes[i - 1] == 'night'):
+                    modes[i] = 'night'
+            m = models_v[on + (modes[i],)]
         u = Ua[k].copy()
         u[j_sp] = sp
         x = m['Phi'] @ x + m['Gam'] @ u
@@ -247,15 +290,18 @@ def simulate(control, U, x0, k_start=0, k_end=None, mods=models, sched=None):
         q[i] = K_on * np.array(on) * (sp - y[i])
     return pd.DataFrame({'θ1': y[:, 0], 'θ2': y[:, 1], 'q1': q[:, 0], 'q2': q[:, 1],
                          'T_h': T_h[k_start:k_end], 'T_c': T_c[k_start:k_end],
-                         'occupied': occupied[k_start:k_end]}, index=U.index[k_start:k_end]), X
+                         'occupied': occupied[k_start:k_end], 'vent': modes}, index=U.index[k_start:k_end]), X
 
 
 res, X = {}, {}
-for c in ('P', 'dead-band'):
-    r, X[c] = simulate(c, U, x0)
+for c, control, vent in (('P', 'P', False), ('dead-band', 'dead-band', False),
+                         ('dead-band + ventilation', 'dead-band', True)):
+    r, X[c] = simulate(control, U, x0, vent=vent)
     res[c] = r.iloc[k0:]                                          # without the warm-up
     X[c] = X[c][k0:]
-print('simulated: ' + ', '.join(res))"""),
+print('simulated: ' + ', '.join(res))
+v = res['dead-band + ventilation']['vent']
+print('ventilation modes (h/a): ' + ', '.join(f'{m} {(v == m).sum() * dt / 3600:.0f}' for m in G_vent))"""),
     md("""## 5 Results"""),
     code("""S_tot = 2 * S_plan                                               # m², floor area of both zones
 
@@ -285,6 +331,57 @@ for j, name in ((1, 'zone 1 (south)'), (2, 'zone 2 (north)')):
     print(f'dead-band, {name}: heating {r[f"q{j}"].clip(lower=0).sum() * dt / 3.6e6 / S_plan:.1f} kWh/m², '
           f'cooling {-r[f"q{j}"].clip(upper=0).sum() * dt / 3.6e6 / S_plan:.1f} kWh/m²')
 fig_tab.round(1)"""),
+    md("""### Humid air
+
+The thermal model has sensible heat only. Latent loads come from a moisture balance of the air of each zone
+(assumptions): air mass $M = \\rho V$, outdoor air $\\dot m = \\rho \\dot V$ of the active ventilation mode (the heat
+recovery does not transfer moisture), 60 g/h of vapour per person, no moisture storage in the walls, no
+humidification in winter. During occupancy the ventilation unit keeps the humidity ratio at most
+$w_{max}$ = 12 g/kg (about 60 % at 26 °C); the removed vapour times $h_{fg}$ = 2450 kJ/kg is the latent cooling.
+
+$$M \\frac{dw}{dt} = \\dot m\\,(w_o - w) + \\dot m_{occ} - \\dot m_{dehum}$$
+
+solved with implicit Euler on the same time step."""),
+    code("""g_pers, w_max, h_fg, rho_air = 60 / 3.6e6, 12e-3, 2450e3, 1.2   # kg/s per person, kg/kg, J/kg, kg/m³
+n_pers = np.where(workday, p_persons[t.hour] * f_year, 0) * S_plan / 14   # persons per zone
+w_out = w['w_o'].to_numpy()
+
+
+def humidity(r):
+    \"\"\"Humidity ratio (kg/kg) and latent cooling (W, > 0) of one zone along a result with column 'vent'.\"\"\"
+    k = t.get_indexer(r.index)
+    M = rho_air * V_air
+    m_a = rho_air / 3600 * r['vent'].map(V_vent).to_numpy()
+    w_z, q_l = np.zeros(len(r)), np.zeros(len(r))
+    x = w_out[k[0]]
+    for i, kk in enumerate(k):
+        x = (M * x + dt * (m_a[i] * w_out[kk] + g_pers * n_pers[kk])) / (M + dt * m_a[i])
+        if occupied[kk] and x > w_max:
+            q_l[i] = (x - w_max) * (M + dt * m_a[i]) / dt * h_fg
+            x = w_max
+        w_z[i] = x
+    return pd.DataFrame({'w': w_z, 'q_lat': q_l}, index=r.index)
+
+
+hum = {c: humidity(r) for c, r in res.items()}                  # zones identical (same flow and occupancy)
+fig_tab.loc['latent cooling, kWh/m²'] = [hum[c]['q_lat'].sum() * dt / 3.6e6 / S_plan for c in fig_tab]
+fig_tab.loc['cooling incl. latent, kWh/m²'] = fig_tab.loc['cooling, kWh/m²'] + fig_tab.loc['latent cooling, kWh/m²']
+fig_tab.round(1)"""),
+    code("""d0 = hum['dead-band + ventilation']['q_lat'].resample('D').sum().idxmax()   # day with the largest latent load
+a, b = d0 - pd.Timedelta(days=d0.dayofweek), d0 + pd.Timedelta(days=6 - d0.dayofweek, hours=23.75)
+fig, axs = plt.subplots(2, 1, figsize=(12, 5), sharex=True)
+axs[0].plot(w.loc[a:b, 'w_o'] * 1e3, color='grey', lw=0.8, label='outdoors')
+for c in ('dead-band', 'dead-band + ventilation'):
+    axs[0].plot(hum[c].loc[a:b, 'w'] * 1e3, lw=1, label=c)
+    axs[1].plot(hum[c].loc[a:b, 'q_lat'] / 1000, lw=1, label=c)
+axs[0].axhline(w_max * 1e3, color='k', ls=':', lw=0.8, label='$w_{max}$')
+axs[0].set(ylabel='w, g/kg', title=f'Humidity ratio and latent cooling of one zone, week of {d0:%d %B}')
+axs[1].set(ylabel='latent cooling, kW')
+for ax in axs:
+    ax.legend(fontsize=8, loc='upper right')
+    ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()"""),
     md("""A winter and a summer week (Monday to Sunday), P-controller and dead-band. Grey band: between heating and
 cooling set-point."""),
     code("""weeks = {'winter week': (f'{year}-01-16', f'{year}-01-22 23:45'),
@@ -314,7 +411,8 @@ def plot_week(rs, title):
     plt.show()
 
 
-plot_week(res, 'P-controller and dead-band')"""),
+plot_week({c: res[c] for c in ('P', 'dead-band')}, 'P-controller and dead-band')"""),
+    code("""plot_week({c: res[c] for c in ('dead-band', 'dead-band + ventilation')}, 'dead-band without and with bypass and night ventilation')"""),
     code("""mon = pd.DataFrame({
     'heating P': res['P'][['q1', 'q2']].clip(lower=0).sum(axis=1),
     'cooling P': res['P'][['q1', 'q2']].clip(upper=0).sum(axis=1),
@@ -369,7 +467,8 @@ $P_{max}$ = 30 kW per zone (assumption, about 5 times the design heating load). 
 the plan is recalculated (receding horizon).
 
 "MPC, energy" uses $\\lambda = 0$; "MPC, energy + peak" uses $\\lambda$ = 4 kWh per kW (assumption, e.g. a demand
-charge). Both run for the winter and summer week from the dead-band states."""),
+charge). Both run for the winter and summer week from the dead-band states, with the normal ventilation
+(the bypass and night ventilation would make the model time-varying)."""),
     code("""m0 = models[(0, 0)]
 Phi0, Gam0 = m0['Phi'], m0['Gam']
 j_q = [jf[air1], jf[air2]]                                       # inputs of the air nodes: q_HVAC is added here
@@ -455,13 +554,23 @@ cools the sunlit south zone in winter. 11.8 kWh/(m²·a) heating and 65.7 kWh/(m
 and step response, not for a year.
 
 Dead-band: 6.9 kWh/(m²·a) heating, 23.9 kWh/(m²·a) cooling (south 3.9 / 25.0, north 9.9 / 22.8), against 8.1 and
-12.4 kWh/(m²·a) from SIA 2024 (room type 3.01, Chur). Cooling is about double: no heat-recovery bypass and no night
-ventilation (26–27 °C inside at night, often 10–20 °C outside), blinds only above 200 W/m² so the north windows
-(60 % of the façade) are hardly shaded, convective gains and no pre-cooling before 07:00. The peak heating load of
+12.4 kWh/(m²·a) from SIA 2024 (room type 3.01, Chur). Cooling is about double: the heat recovery also runs in
+summer and the building stays at 26–27 °C at night although it is often 10–20 °C outside; blinds only above
+200 W/m², so the north windows (60 % of the façade) are hardly shaded. The peak heating load of
 38.6 W/m² exceeds the design load of 24.6 W/m² (Assignment 2) since the set-point jumps from 18 to 21 °C at 07:00
 and the unlimited controller re-heats in about one step. In winter the south zone floats up to about 24 °C while
 the north zone is heated, partly via the interior wall; in summer the unshaded north zone needs more cooling. The
 symmetric P-controller of the active mode also gives 19 kWh cooling and 10 kWh heating per year in the wrong mode.
+
+Bypass and night ventilation: cooling drops from 23.9 to 7.3 kWh/(m²·a) and the peak from 33.7 to 26.9 W/m²;
+heating stays at 7.0 kWh/(m²·a), since both only run when $T_{o,24h}$ > 12 °C. The bypass runs 2434 h and the
+night ventilation 1190 h per year. Night air cools the concrete, which then takes up heat during the day. With
+it the model is below the SIA 2024 value; the windows are assumed to open whenever needed (no rain, wind or
+security limits) and fan energy is not counted.
+
+Humid air: the latent cooling is only 0.4 kWh/(m²·a), the same with and without night ventilation (dehumidified
+only during occupancy). The outdoor air in Chur is above 12 g/kg for 348 h a year (on 40 days), and only the
+excess during occupancy is removed. With latent load the cooling is 7.7 kWh/(m²·a).
 
 Time step: 5 min instead of 15 min changes the energy by less than 1 % and the air temperature by at most 0.4 K.
 
@@ -469,10 +578,10 @@ MPC: with energy only it matches the dead-band controller within 1 %, as both he
 peak in the cost (4 kWh per kW) it pre-heats into the thermal mass and cuts the winter-week peak by 34 %
 (27.1 to 17.9 W/m²) for about 6 % more heating energy. The peak term only covers the 24 h horizon; a monthly
 demand charge would need the peak already reached as a constraint. The summer peak stays, because pre-cooling the
-concrete costs more than it saves; night ventilation (not modelled) would help more.
+concrete costs more than it saves; night ventilation does this for free (above).
 
-Limits: ideal controllers (dead-band without power limit, MPC with 30 kW and perfect forecast), sensible heat only,
-convective gains, no night ventilation or bypass, one typical year (weather about half an hour early, as values sit
+Limits: ideal controllers (dead-band without power limit, MPC with 30 kW and perfect forecast), latent load from a
+simple moisture balance, MPC without bypass and night ventilation, convective gains, one typical year (weather about half an hour early, as values sit
 at the start of their hour and are interpolated), hypotheses of Assignment 1 (e.g. star network for long-wave
 radiation, constant coefficients)."""),
 ]
