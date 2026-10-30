@@ -9,21 +9,9 @@ cells = [
 
 **Team:** _Valerio Paganini_
 
-This notebook simulates the building of Assignment 1 ([Assignment1_Model.ipynb](Assignment1_Model.ipynb)) with the
-weather of Chur for one year. It uses the matrices $A$, $G$, $C$ and the state-space representation of Assignment 2
-([Assignment2_SteadyState.ipynb](Assignment2_SteadyState.ipynb)); the time step follows from Assignment 3
-([Assignment3_StepResponse.ipynb](Assignment3_StepResponse.ipynb)).
-
-Content, as in the list of the assignment:
-
-1. start and end time,
-2. inputs: weather data, solar irradiance on the walls, resampling, other inputs (internal gains, set-points),
-   input vector in time,
-3. initial conditions,
-4. integration in time (P-controller of Assignments 1–3),
-5. plots and discussion,
-6. other controllers: dead-band controller and model predictive control (MPC),
-7. discussion."""),
+One year of Chur weather on the building of Assignment 1 ([Assignment1_Model.ipynb](Assignment1_Model.ipynb)),
+with $A$, $G$, $C$ and the state space of Assignment 2 ([Assignment2_SteadyState.ipynb](Assignment2_SteadyState.ipynb))
+and the time step from Assignment 3 ([Assignment3_StepResponse.ipynb](Assignment3_StepResponse.ipynb))."""),
     code("""import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -41,14 +29,12 @@ jf = {i: len(bT) + j for j, i in enumerate(fQ)}         # node with flow-rate so
 print(f'{len(states)} state variables, {len(bT)} + {len(fQ)} = {len(u_names)} inputs, outputs θ{air1}, θ{air2}')"""),
     md("""## 1 Start and end time
 
-One year of the typical weather year of Chur (TMYx 2004–2018, hypothesis 4). The year 2023 is used for the time
-axis (it starts on a Sunday). The heavy concrete has time constants of up to 18 days (Assignment 3), so the
-simulation starts 30 days earlier with the weather of the last 30 days of the year (warm-up, assumption); the
-warm-up is not counted in the results.
+Typical weather year of Chur (TMYx 2004–2018, hypothesis 4) on the time axis of 2023 (starts on a Sunday). The
+concrete has time constants of up to 18 days (Assignment 3), so a 30-day warm-up with the last 30 days of the
+year runs first (assumption) and is excluded from the results.
 
-The time step is 15 min with the implicit Euler method. The explicit method would need $\\Delta t$ < 16 s
-because of the P-controller (Assignment 3); the implicit method is stable for any time step. The error of
-15 min is checked in section 5."""),
+Time step 15 min, implicit Euler; explicit Euler would need $\\Delta t$ < 16 s with the P-controller
+(Assignment 3). The step size is checked in section 5."""),
     code("""year, dt = 2023, 900                        # time axis; s, time step (implicit Euler)
 start, end = f'{year}-01-01 00:00', f'{year}-12-31 23:45'
 warmup = 30                                  # d, warm-up before the start (assumption)
@@ -57,17 +43,13 @@ print(f'{start} to {end}, Δt = {dt / 60:.0f} min, warm-up {warmup} d')"""),
 
 ### Weather data and solar irradiance on the walls
 
-`dm4bem.read_epw` reads the weather file; `dm4bem.sol_rad_tilt_surf` gives the direct, diffuse and reflected
-irradiance on each surface (azimuth 0 = south, west positive; albedo 0.2, assumption). Two corrections:
-
-- **Time.** `read_epw` labels each hourly value with the start of its hour; `sol_rad_tilt_surf` calculates the
-  position of the sun at the end of the hour (`minute + 60`) in clock time. The middle of the hour in solar time is
-  $0.5\\,\\text{h} + (15° \\cdot 1 - 9.53°)/15°\\,\\text{h} = 0.86$ h (52 min) earlier for Chur (UTC+1, longitude
-  9.53° E; equation of time neglected). The time passed to `sol_rad_tilt_surf` is shifted by this amount; without
-  it the east façade would get 37 % less and the west façade 35 % more direct radiation in the year.
-- **Ground reflection.** `sol_rad_tilt_surf` multiplies the radiation reflected by the ground with
-  $1 - \\cos\\beta / 2$; the view factor of a surface with slope $\\beta$ to the ground is $(1 - \\cos\\beta)/2$
-  (Duffie & Beckman), so the reflected part is corrected (it was twice too large on the façades)."""),
+Irradiance per surface from `dm4bem.read_epw` and `dm4bem.sol_rad_tilt_surf` (azimuth 0 = south, west positive;
+albedo 0.2, assumption), with two corrections. First, `read_epw` labels hourly values with the start of the hour
+but `sol_rad_tilt_surf` puts the sun at the end (`minute + 60`, clock time). The middle of the hour in solar time
+is $0.5\\,\\text{h} + (15° \\cdot 1 - 9.53°)/15°\\,\\text{h} = 0.86$ h (52 min) earlier for Chur (UTC+1, 9.53° E;
+equation of time neglected), so the time is shifted by that; otherwise east would get 37 % less and west 35 % more
+direct radiation. Second, the ground-reflected part uses $1 - \\cos\\beta / 2$ instead of the view factor
+$(1 - \\cos\\beta)/2$ (Duffie & Beckman), which doubles it on the façades, so it is corrected."""),
     code("""weather, meta = dm4bem.read_epw('daten/CHE_GR_Chur.067860_TMYx.2004-2018.epw', coerce_year=year)
 weather = weather[['temp_air', 'dir_n_rad', 'dif_h_rad']]
 albedo = 0.2
@@ -90,8 +72,7 @@ print(f'latitude {meta["latitude"]}°, T_o mean {weather["T_o"].mean():.1f} °C,
 (weather.filter(like='E_').sum() / 1000).round(0).rename('solar irradiation, kWh/(m²·a)').to_frame().T"""),
     md("""### Resampling and warm-up
 
-The hourly weather is resampled to the time step by linear interpolation; the last 30 days of the year are put in
-front as warm-up."""),
+Linear interpolation to the time step; the last 30 days are put in front as warm-up."""),
     code("""pre = weather.loc[weather.index[-1] - pd.Timedelta(days=warmup):].iloc[1:].copy()
 pre.index = pre.index - pd.Timedelta(days=365)                 # last 30 days, one year earlier
 w = pd.concat([pre, weather]).resample(f'{dt}s').interpolate()
@@ -102,29 +83,27 @@ k0 = t.get_loc(pd.Timestamp(start))                            # first time step
 print(f'{n} time steps ({k0} of warm-up), {t[0]} to {t[-1]}')"""),
     md("""### Other inputs
 
-**Internal gains** (hypothesis 9; SIA 2024 room type 3.01, assumption): occupancy Monday–Friday 07:00–18:00.
-Occupants 84 W per person at 14 m² per person and equipment 11 W/m², each with its hourly profile on working days
-and an annual factor of 0.8 (holidays, absence); equipment at least 30 % (stand-by), also at the weekend. Lighting
-9.72 W/m² during occupancy, with a constant factor such that the annual energy is 13.45 kWh/m². All gains are
-convective, on the air node.
+Internal gains (hypothesis 9; SIA 2024 room type 3.01, assumption), all convective on the air node: occupancy
+Mon–Fri 07:00–18:00; occupants 84 W per person at 14 m² per person and equipment 11 W/m², with hourly profiles and
+an annual factor of 0.8 (holidays, absence); equipment at least 30 % (stand-by), weekends included; lighting
+9.72 W/m² during occupancy, scaled to 13.45 kWh/m² per year.
 
-**Set-points** (hypothesis 12): heating 21 °C and cooling 26 °C during occupancy, 18 °C and 28 °C otherwise.
+Set-points (hypothesis 12): heating/cooling 21/26 °C during occupancy, 18/28 °C otherwise.
+Basement (hypothesis 5): $T_{bsmt} = 20 - 0.7\\,(20 - T_{o,24h})$, $T_{o,24h}$ = 24-hour mean of $T_o$.
 
-**Basement** (hypothesis 5): $T_{bsmt} = 20 - 0.7\\,(20 - T_{o,24h})$ with the 24-hour mean of $T_o$.
-
-**Solar radiation** (hypothesis 8; values: assumption):
+Solar radiation (hypothesis 8; values assumed):
 
 | Quantity | Value |
 |---|---|
 | absorptivity façade / roof | 0.5 / 0.6 |
-| glazing: transmitted / absorbed in the glass | 0.40 / 0.20 (g ≈ 0.5 with the part of the absorbed radiation that goes inside) |
-| reduction for horizon, reveals and angle of incidence $F_{sol}$ | 0.65 |
+| glazing: transmitted / absorbed | 0.40 / 0.20 (g ≈ 0.5 incl. absorbed part going inside) |
+| horizon, reveals, angle of incidence $F_{sol}$ | 0.65 |
 | frame (no solar gain) | 20 % of the window |
 | external blinds closed: factor on transmitted and absorbed | 0.20 ($g_{tot} \\approx 0.10$) |
-| blinds closed if | irradiance on the façade > 200 W/m² and 24-hour mean of $T_o$ > 12 °C (summer) |
-| transmitted radiation | 50 % on the floor, 50 % on the inner surfaces of walls, roof and interior wall by area (not on the windows) |
+| blinds closed if | façade irradiance > 200 W/m² and 24-hour mean $T_o$ > 12 °C |
+| transmitted radiation | 50 % on the floor, 50 % on walls, roof and interior wall by area (not windows) |
 
-The rule for the blinds depends only on the weather, so all inputs are known in advance (also for the MPC)."""),
+The blind rule depends only on the weather, so all inputs are known in advance (also for the MPC)."""),
     code("""p_persons = np.array([0, 0, 0, 0, 0, 0, 0, 0.2, 0.6, 1, 1, 0.8, 0.4, 0.6, 1, 0.8, 0.6, 0.2, 0, 0, 0, 0, 0, 0])
 p_equip = np.array([0.3] * 8 + [0.6, 0.8, 1, 0.8, 0.4, 0.6, 1, 0.8, 0.6] + [0.3] * 7)
 f_year, f_standby = 0.8, 0.3                                     # annual factor, stand-by share of equipment
@@ -151,12 +130,12 @@ print(f'internal gains: mean {q_int[k0:].mean():.1f} W/m², max {q_int.max():.1f
 print('blinds closed (h/a): ' + ', '.join(f'{o} {blind[o][k0:].sum() * dt / 3600:.0f}' for o in blind))"""),
     md("""### Input vector in time
 
-The input $u$ has one row per time step and the 48 columns of Assignment 2: first the temperature sources $b_T$
-(branches), then the flow-rate sources $f_Q$ (nodes). Node numbers of zone 1 (zone 2: + 73): outer surfaces
+One row per time step, 48 columns as in Assignment 2: temperature sources $b_T$ (branches), then flow-rate
+sources $f_Q$ (nodes). Nodes of zone 1 (zone 2: + 73): outer surfaces
 $\\theta_0, \\theta_{15}, \\theta_{30}$ (walls S, E, W), $\\theta_{45}$ (roof); glass $\\theta_{13}, \\theta_{28},
 \\theta_{43}$; inner surfaces $\\theta_{12}, \\theta_{27}, \\theta_{42}$ (walls), $\\theta_{57}$ (roof),
 $\\theta_{70}$ (floor); interior wall $\\theta_{146}$ (zone 1 side), $\\theta_{154}$ (zone 2 side); air
-$\\theta_{71}$. The set-points $T_{sp}$ are given by the controller in the time loop."""),
+$\\theta_{71}$. The controller sets $T_{sp}$ in the time loop."""),
     code("""U = np.zeros((n, len(u_names)))
 for k in bT:                                                     # temperature sources
     U[:, jb[k]] = {'T_o': w['T_o'].to_numpy(), 'T_bsmt': T_bsmt}.get(src[k], 0.0)
@@ -201,29 +180,25 @@ plt.tight_layout()
 plt.show()"""),
     md("""## 3 Initial conditions
 
-All states start at 20 °C at the beginning of the warm-up (as in 03CubicBuilding). After 30 days of warm-up the
-influence of this choice is small: the largest time constant is 7.9 d with controller and 17.6 d without
-(Assignment 3), and 20 °C is close to the real temperature of the concrete in December."""),
+All states start at 20 °C at the beginning of the warm-up (as in 03CubicBuilding). The largest time constant is
+7.9 d with controller and 17.6 d without (Assignment 3), and 20 °C is close to the concrete temperature in
+December, so after 30 days the initial value hardly matters."""),
     code("""x0 = np.full(len(states), 20.0)"""),
     md("""## 4 Integration in time
 
-The gain $K_p$ of a zone is either $10^5$ W/K (controller on) or 0 (off), so there are four models; they are
-discretised once with the implicit Euler method:
+$K_p$ of each zone is $10^5$ W/K (on) or 0 (off), which gives four models, each discretised once with implicit
+Euler:
 
 $$\\theta_{C,k+1} = \\Phi\\,\\theta_{C,k} + \\Gamma u_k, \\qquad \\Phi = (I - \\Delta t A_s)^{-1}, \\quad
 \\Gamma = \\Phi\\,\\Delta t B_s$$
 
-The heat flow rate of the controller during a time step is $q_{HVAC} = K_p (T_{sp} - \\theta_{air})$ with the air
-temperature at the end of the step (implicit method). In the results, each time step has the air temperature at
-its end and the heat flow rate during the step. The controller decides with the air temperature at the start of
-the step (measurement).
+$q_{HVAC} = K_p (T_{sp} - \\theta_{air})$ is evaluated with the air temperature at the end of the step; the
+controller decides on the measured air temperature at the start of the step.
 
-The function `simulate` contains two controllers (the MPC follows in section 6):
-
-- **P-controller** (as in Assignments 1–3): always on, set-point = heating set-point. It also cools as soon as the
-  air is above the set-point.
-- **dead-band**: per zone, on with $T_{sp} = T_h$ if the air is below $T_h$, on with $T_{sp} = T_c$ if it is above
-  $T_c$, otherwise off (free-floating). This is the switching between models of tutorial 05SwitchModels."""),
+`simulate` has two controllers (MPC in section 6). The P-controller of Assignments 1–3 is always on with the
+heating set-point, so it also cools whenever the air is above it. The dead-band controller (as in tutorial
+05SwitchModels) switches a zone on with $T_{sp} = T_h$ below $T_h$, with $T_{sp} = T_c$ above $T_c$, and off in
+between."""),
     code("""K_on = 1e5                                                       # W/K, gain of the P-controller when on
 
 
@@ -310,8 +285,8 @@ for j, name in ((1, 'zone 1 (south)'), (2, 'zone 2 (north)')):
     print(f'dead-band, {name}: heating {r[f"q{j}"].clip(lower=0).sum() * dt / 3.6e6 / S_plan:.1f} kWh/m², '
           f'cooling {-r[f"q{j}"].clip(upper=0).sum() * dt / 3.6e6 / S_plan:.1f} kWh/m²')
 fig_tab.round(1)"""),
-    md("""Two weeks with the dead-band controller and the P-controller: a winter week and a summer week (Monday to
-Sunday). Grey band: between heating and cooling set-point."""),
+    md("""A winter and a summer week (Monday to Sunday), P-controller and dead-band. Grey band: between heating and
+cooling set-point."""),
     code("""weeks = {'winter week': (f'{year}-01-16', f'{year}-01-22 23:45'),
          'summer week': (f'{year}-07-17', f'{year}-07-23 23:45')}
 
@@ -358,8 +333,8 @@ ax.axhline(0, color='k', lw=0.6)
 ax.legend(fontsize=8, ncol=2)
 ax.grid(axis='y', alpha=0.3)
 plt.show()"""),
-    md("""**Time step.** The winter week and the summer week are simulated again with the dead-band controller and a
-time step of 5 min (the states at the start of the week are taken from the annual simulation)."""),
+    md("""Time step check: both weeks again with the dead-band controller at 5 min, starting from the states of the
+annual simulation."""),
     code("""dt_f = 300
 models_f = {key: discrete(*key, dt_=dt_f) for key in models}
 U_f = U.resample(f'{dt_f}s').ffill()                              # inputs constant within 15 min
@@ -377,11 +352,9 @@ for wname, (a, b) in weeks.items():
           f'{np.abs(r15["θ1"].values - r5["θ1"].resample(f"{dt}s").last().values[:len(r15)]).max():.2f} K')"""),
     md("""## 6 Model predictive control (MPC)
 
-The MPC uses the model without controller ($K_p = 0$) and calculates the heat flow rate $q_{HVAC}$ of each zone
-directly; it is added to the flow-rate source of the air node. Every hour it solves a linear program over a
-horizon of 24 h with a perfect forecast of all inputs (weather, gains, set-points). The heat flow rate is a
-decision for every time step of 15 min in the first 4 h and for every hour after that (fewer variables); the air
-temperature is checked at every time step:
+The MPC uses the model with $K_p = 0$ and adds $q_{HVAC}$ of each zone to the air node. Every hour it solves a
+linear program over 24 h with a perfect forecast of all inputs; $q_{HVAC}$ is decided per 15 min for the first 4 h
+and hourly after that, the air temperature is checked every step:
 
 $$\\min \\; \\sum_h \\left(q_{h} + q_{c}\\right) \\cdot 1\\,\\text{h} \\; + \\; \\lambda \\left(\\hat q_h + \\hat q_c\\right)
 \\; + \\; \\rho \\sum s$$
@@ -389,20 +362,14 @@ $$\\min \\; \\sum_h \\left(q_{h} + q_{c}\\right) \\cdot 1\\,\\text{h} \\; + \\; 
 $$T_h - s \\le \\theta_{air} \\le T_c + s, \\qquad 0 \\le q_h \\le \\hat q_h, \\quad 0 \\le q_c \\le \\hat q_c,
 \\quad q_h, q_c \\le P_{max}, \\qquad s \\ge 0$$
 
-with $q_{HVAC} = q_h - q_c$ (heating minus cooling) and $\\hat q_h$, $\\hat q_c$ the largest heating and cooling power
-of each zone in the horizon. The air temperature is linear in $q$: $\\theta_{air} = \\theta_{free} + H q$, where
-$\\theta_{free}$ is the prediction with $q = 0$ and $H$ contains the responses of the air temperatures to the heat
-flow rates, built from $C_s \\Phi^m \\Gamma_q$. The slack $s$ (penalty $\\rho$ = 1000 kWh/K) keeps the problem
-solvable. The power is limited to $P_{max}$ = 30 kW per zone (assumption, about 5 times the design heating load).
-The first hour of the plan is applied, then the plan is calculated again (receding horizon).
+with $q_{HVAC} = q_h - q_c$ and $\\hat q_h$, $\\hat q_c$ the peak powers per zone in the horizon. The air
+temperature is $\\theta_{air} = \\theta_{free} + H q$, with $\\theta_{free}$ the prediction for $q = 0$ and $H$ from
+$C_s \\Phi^m \\Gamma_q$. The slack $s$ (penalty $\\rho$ = 1000 kWh/K) keeps the problem feasible;
+$P_{max}$ = 30 kW per zone (assumption, about 5 times the design heating load). The first hour is applied, then
+the plan is recalculated (receding horizon).
 
-Two variants:
-
-- **MPC, energy** ($\\lambda = 0$): minimum heating and cooling energy;
-- **MPC, energy + peak** ($\\lambda$ = 4 kWh per kW, assumption, e.g. a demand charge): the peak power also costs.
-
-The MPC is run for the winter and the summer week, from the states of the dead-band simulation at the start of the
-week."""),
+"MPC, energy" uses $\\lambda = 0$; "MPC, energy + peak" uses $\\lambda$ = 4 kWh per kW (assumption, e.g. a demand
+charge). Both run for the winter and summer week from the dead-band states."""),
     code("""m0 = models[(0, 0)]
 Phi0, Gam0 = m0['Phi'], m0['Gam']
 j_q = [jf[air1], jf[air2]]                                       # inputs of the air nodes: q_HVAC is added here
@@ -480,55 +447,34 @@ for wname, (a, b) in weeks.items():
 pd.DataFrame(tab_w).round(1)"""),
     md("""## 7 Discussion
 
-**Inputs.** The south façade receives 1138 kWh/(m²·a), east 732, west 829, north 468 and the roof 1449. The
-correction of the time of the sun changes the share between east and west strongly; the correction of the ground
-reflection reduces the irradiance on the façades. The internal gains are 58.7 kWh/(m²·a).
+Inputs: 1138 kWh/(m²·a) south, 732 east, 829 west, 468 north, 1449 roof (the time correction mostly moves
+radiation between east and west); internal gains 58.7 kWh/(m²·a).
 
-**P-controller (model of Assignments 1–3).** With one set-point the controller heats and cools to the same
-temperature: in summer it cools the building to 21 °C during occupancy and to 18 °C at night, in winter it cools
-the south zone when the sun heats it above 21 °C. It needs 11.8 kWh/(m²·a) of heating and 65.7 kWh/(m²·a) of
-cooling. One P-controller with a fixed set-point is useful for the steady state and the step response, not for a
-year.
+P-controller: one set-point for heating and cooling, so it cools to 21 °C by day and 18 °C at night in summer and
+cools the sunlit south zone in winter. 11.8 kWh/(m²·a) heating and 65.7 kWh/(m²·a) cooling: fine for steady state
+and step response, not for a year.
 
-**Dead-band controller.** Heating 6.9 kWh/(m²·a) and cooling 23.9 kWh/(m²·a) (zone 1, south: 3.9 and 25.0; zone 2,
-north: 9.9 and 22.8). For comparison, the standard values of SIA 2024 for room type 3.01 at the climate station
-Chur are 8.1 kWh/(m²·a) heating and 12.4 kWh/(m²·a) cooling. The heating is close; the cooling is about twice the
-standard value, because in this model
+Dead-band: 6.9 kWh/(m²·a) heating, 23.9 kWh/(m²·a) cooling (south 3.9 / 25.0, north 9.9 / 22.8), against 8.1 and
+12.4 kWh/(m²·a) from SIA 2024 (room type 3.01, Chur). Cooling is about double: no heat-recovery bypass and no night
+ventilation (26–27 °C inside at night, often 10–20 °C outside), blinds only above 200 W/m² so the north windows
+(60 % of the façade) are hardly shaded, convective gains and no pre-cooling before 07:00. The peak heating load of
+38.6 W/m² exceeds the design load of 24.6 W/m² (Assignment 2) since the set-point jumps from 18 to 21 °C at 07:00
+and the unlimited controller re-heats in about one step. In winter the south zone floats up to about 24 °C while
+the north zone is heated, partly via the interior wall; in summer the unshaded north zone needs more cooling. The
+symmetric P-controller of the active mode also gives 19 kWh cooling and 10 kWh heating per year in the wrong mode.
 
-- the ventilation always has heat recovery (no summer bypass) and there is no night ventilation: at night the
-  building stays at 26–27 °C although the outdoor air is often between 10 and 20 °C;
-- the blinds close only above 200 W/m² on the façade; the north windows (60 % of the façade) are almost never
-  shaded;
-- all gains are convective on the air, and the air is cooled to 26 °C from 07:00 without pre-cooling.
+Time step: 5 min instead of 15 min changes the energy by less than 1 % and the air temperature by at most 0.4 K.
 
-The peak heating load is 38.6 W/m², higher than the steady-state design load of 24.6 W/m² (Assignment 2), because
-the set-point jumps from 18 °C to 21 °C at 07:00 and the controller (unlimited power) re-heats within about one
-time step. In the winter week the sun heats the south zone above 21 °C (free-floating up to about 24 °C) while the north
-zone needs heating; the interior wall transfers part of this heat. In the summer week the north zone needs more
-cooling than the south zone, because its blinds stay open.
+MPC: with energy only it matches the dead-band controller within 1 %, as both heat as late as possible. With the
+peak in the cost (4 kWh per kW) it pre-heats into the thermal mass and cuts the winter-week peak by 34 %
+(27.1 to 17.9 W/m²) for about 6 % more heating energy. The peak term only covers the 24 h horizon; a monthly
+demand charge would need the peak already reached as a constraint. The summer peak stays, because pre-cooling the
+concrete costs more than it saves; night ventilation (not modelled) would help more.
 
-**Time step.** With 5 min instead of 15 min the heating and cooling energy changes by less than 1 %; the air
-temperature differs by up to 0.4 K at the moments when the set-point or the controller switches.
-
-**MPC.** With a perfect forecast and only the energy as cost, the MPC needs the same energy as the dead-band
-controller (within 1 %): heating as late as possible and keeping the air exactly at the limit is already what the
-dead-band controller does. Its advantage appears when the cost has another term: with the peak power in the cost
-(demand charge, 4 kWh per kW) it starts heating earlier in the morning, using the thermal mass, and reduces the peak
-heating load in the winter week by 34 % (27.1 to 17.9 W/m²) for about 6 % more heating energy. The peak in the
-cost covers only the current horizon of 24 h; a real demand charge over a month would need the peak already reached
-as an additional constraint. In the summer week it
-does not reduce the cooling peak: the peak is in the afternoon of occupied days, and pre-cooling the concrete would
-cost more cooling energy than the penalty saves; free night ventilation (not modelled) would be the better measure.
-
-In the dead-band controller the P-controller of the active mode is symmetric: in heating mode it can extract a
-little heat within a time step if the gains push the air above $T_h$ (and vice versa). Over the year this is 19 kWh
-of cooling and 10 kWh of heating; it is the small cooling in the winter week and the small heating in the summer
-week of the dead-band controller.
-
-**Limits.** Ideal controllers (dead-band without power limit, MPC with 30 kW and perfect forecast), sensible heat
-only, convective internal gains, no night ventilation and no bypass of the heat recovery, one typical weather year (the weather values are placed at the start of their hour and interpolated, so they
-are about half an hour early),
-the hypotheses of Assignment 1 (e.g. star network for long-wave radiation, constant coefficients)."""),
+Limits: ideal controllers (dead-band without power limit, MPC with 30 kW and perfect forecast), sensible heat only,
+convective gains, no night ventilation or bypass, one typical year (weather about half an hour early, as values sit
+at the start of their hour and are interpolated), hypotheses of Assignment 1 (e.g. star network for long-wave
+radiation, constant coefficients)."""),
 ]
 
 nb = nbf.v4.new_notebook()

@@ -9,26 +9,15 @@ cells = [
 
 **Team:** _Valerio Paganini_
 
-This notebook uses the thermal circuit of Assignment 1 ([Assignment1_Model.ipynb](Assignment1_Model.ipynb)) and the
-state-space representation of Assignment 2 ([Assignment2_SteadyState.ipynb](Assignment2_SteadyState.ipynb)).
+Uses the thermal circuit of Assignment 1 ([Assignment1_Model.ipynb](Assignment1_Model.ipynb)) and the state-space
+model of Assignment 2 ([Assignment2_SteadyState.ipynb](Assignment2_SteadyState.ipynb)).
 
-Content, as in the list of the assignment:
+Step 1 (free-floating test, as in 03CubicBuilding): $K_p = 0$, all temperatures 0 °C at $t = 0$, then outdoor and
+basement at 10 °C. After the settling time every temperature must be 10 °C.
 
-1. time step and settling time,
-2. input vector $u$,
-3. integration in time of the differential equations,
-4. plots of the results,
-5. discussion of the results.
-
-Two step responses are calculated:
-
-- **Step 1 – free-floating building (test)**, as in 03CubicBuilding: controller off ($K_p = 0$), all temperatures
-  0 °C at $t = 0$, then outdoor and basement temperature 10 °C. After the settling time every temperature must be
-  10 °C.
-- **Step 2 – controlled building, outdoor temperature step**: P-controller on ($K_p = 10^5$ W/K, set-point 21 °C),
-  start from the steady state of the design case of Assignment 2 ($T_o = -7.2$ °C), then $T_o$ jumps to 10 °C. The
-  basement temperature stays 0.96 °C (assumption: the basement reacts slowly). This shows how fast the heating load
-  of the building follows the outdoor temperature."""),
+Step 2 (controlled): $K_p = 10^5$ W/K, set-point 21 °C, starting from the design steady state of Assignment 2
+($T_o = -7.2$ °C); then $T_o$ jumps to 10 °C. The basement stays at 0.96 °C (assumed slow). This shows how fast the
+heating load follows the outdoor temperature."""),
     code("""import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -43,15 +32,13 @@ s_air = np.searchsorted(states, [air1, air2])
 print(f'{len(states)} state variables, {len(u_names)} inputs, outputs θ{air1}, θ{air2} (air of zone 1 and 2)')"""),
     md("""## 1 Time step and settling time
 
-The explicit Euler method is numerically stable if $|1 + \\lambda_i \\Delta t| < 1$ for all eigenvalues $\\lambda_i$ of
-$A_s$. The eigenvalues of a thermal circuit are real and negative, so the condition becomes
+Explicit Euler is stable if $|1 + \\lambda_i \\Delta t| < 1$ for all eigenvalues $\\lambda_i$ of $A_s$. These are real
+and negative, so
 
 $$\\Delta t < \\Delta t_{max} = \\min\\left(-\\frac{2}{\\lambda_i}\\right) = 2 \\min T_i, \\qquad T_i = -\\frac{1}{\\lambda_i}$$
 
-where $T_i$ are the time constants. The settling time is about four times the largest time constant.
-
-$A_s$ contains the gain $K_p$ of the controller, so both quantities are calculated for the two models. The table also
-gives the state that dominates the fastest and the slowest mode (largest component of the eigenvector)."""),
+The settling time is about four times the largest time constant. $A_s$ depends on $K_p$, so both models are
+evaluated, with the state dominating the fastest and slowest mode (largest eigenvector component)."""),
     code("""models = {'free-floating (K_p = 0)': cases['case 1: test']['ss'],
           'controlled (K_p = 1e5 W/K)': cases['case 2: design heating']['ss']}
 tab = {}
@@ -68,23 +55,18 @@ for name, (As, Bs, Cs, Ds) in models.items():
                  'settling time 4 max T_i (d)': -4 / λ[slow] / 86400}
 tab = pd.DataFrame(tab)
 tab"""),
-    md("""Choice of the time step. In every time step the explicit method multiplies each mode by $1 + \\lambda_i \\Delta t$:
+    md("""Each explicit step multiplies a mode by $1 + \\lambda_i \\Delta t$:
 
 | $\\Delta t$ | $1 + \\lambda_i \\Delta t$ | explicit solution |
 |---|---|---|
-| $< T_{min}$ | between 0 and 1 | decays smoothly, like the exact solution |
-| between $T_{min}$ and $2 T_{min} = \\Delta t_{max}$ | between −1 and 0 | stable, but oscillates from one time step to the next |
-| $> \\Delta t_{max}$ | below −1 | unstable, grows without limit |
+| $< T_{min}$ | 0 to 1 | smooth decay, like the exact solution |
+| $T_{min}$ to $2 T_{min} = \\Delta t_{max}$ | −1 to 0 | stable, oscillates between steps |
+| $> \\Delta t_{max}$ | below −1 | unstable |
 
-03CubicBuilding rounds $\\Delta t_{max}$ down to whole minutes; here that gives a time step close to $\\Delta t_{max}$ and
-visible oscillations (see the end of section 3). The time step is therefore chosen below the smallest time constant
-$T_{min}$:
-
-- free-floating: $T_{min}$ = 515 s, rounded down to whole minutes;
-- controlled: $T_{min}$ is only 8 s, because the controller couples the small capacity of the air strongly to the
-  set-point ($T = C_{air} / (K_p + \\sum G)$). It is rounded down to whole seconds.
-
-The duration of each simulation is the settling time rounded up to whole hours."""),
+Rounding $\\Delta t_{max}$ down to whole minutes (03CubicBuilding) gives a step close to $\\Delta t_{max}$ and visible
+oscillations (end of section 3), so $\\Delta t$ is set below $T_{min}$ instead: 515 s free-floating, rounded down to
+whole minutes; 8 s controlled, rounded down to whole seconds. The controller ties the small air capacity to the
+set-point, $T = C_{air} / (K_p + \\sum G)$. Each run lasts the settling time rounded up to whole hours."""),
     code("""T_min1, T_min2 = tab.loc['smallest time constant (s)']
 dt1 = np.floor(T_min1 / 60) * 60
 dt2 = np.floor(T_min2)
@@ -94,14 +76,13 @@ print(f'step 1 (free-floating): Δt = {dt1:.0f} s = {dt1 / 60:.0f} min, duration
 print(f'step 2 (controlled):    Δt = {dt2:.0f} s, duration {dur2 / 86400:.1f} d, {int(dur2 / dt2)} time steps')"""),
     md("""## 2 Input vectors $u$
 
-The order of the inputs is the one of Assignment 2: first the 20 temperature sources $b_T$ (order of the branches),
-then the 28 flow-rate sources $f_Q$ (order of the nodes). For a step response every input is constant after $t = 0$,
-so $u$ is the same for every time step.
+Order as in Assignment 2: 20 temperature sources $b_T$ (branch order), then 28 flow-rate sources $f_Q$ (node order).
+$u$ is constant for $t \\geq 0$.
 
 | | step 1 | step 2, before $t = 0$ | step 2, after $t = 0$ |
 |---|---|---|---|
 | $K_p$ (W/K) | 0 | $10^5$ | $10^5$ |
-| $T_o$ (°C) | 10 | −7.2 | **10** |
+| $T_o$ (°C) | 10 | −7.2 | 10 |
 | $T_{bsmt}$ (°C) | 10 | 0.96 | 0.96 |
 | $T_{sp}$ (°C) | 20 (no effect) | 21 | 21 |
 | flow-rate sources (W) | 0 | 0 | 0 |
@@ -117,14 +98,14 @@ u2 = u_of(*inputs(T_o=10, T_bsmt=T_bsmt2, T_sp=21))         # step 2 after t = 0
 pd.DataFrame({'step 1': u1, 'step 2, t < 0': u2_0, 'step 2, t ≥ 0': u2}, index=u_names).loc[lambda d: d.any(axis=1)]"""),
     md("""## 3 Integration in time
 
-Explicit (Euler forward) and implicit (Euler backward) integration:
+Explicit (Euler forward) and implicit (Euler backward):
 
 $$\\theta_{C,k+1} = (I + \\Delta t A_s)\\,\\theta_{C,k} + \\Delta t B_s u_k \\qquad \\text{(explicit)}$$
 
 $$\\theta_{C,k+1} = (I - \\Delta t A_s)^{-1}(\\theta_{C,k} + \\Delta t B_s u_k) \\qquad \\text{(implicit)}$$
 
-and the outputs $y_k = C_s \\theta_{C,k} + D_s u_k$. The function returns the outputs and the states. The implicit
-method is stable for any time step; it is also used with $\\Delta t = 1$ h in step 2."""),
+with outputs $y_k = C_s \\theta_{C,k} + D_s u_k$. The implicit method is unconditionally stable and is also run with
+$\\Delta t = 1$ h in step 2."""),
     code("""def simulate(ss, u, θ0, dt, duration, method='explicit', keep_states=False):
     \"\"\"Step response with constant input u from the initial state θ0.
 
@@ -175,8 +156,8 @@ print(f'air θ{air1}: 95 % of the step (9.5 °C) after {t95 / 86400:.1f} d; '
 print(f'max. difference explicit - implicit: {np.abs(y1_exp - y1_imp).max():.3f} K')"""),
     md("""### Step 2 – controlled building, outdoor temperature step
 
-Initial state: the steady state before the step, $\\theta_C(0) = -A_s^{-1} B_s u(t<0)$. The heat flow rate of the
-P-controller is calculated from the output: $q_{HVAC} = K_p (T_{sp} - y)$."""),
+Initial state $\\theta_C(0) = -A_s^{-1} B_s u(t<0)$ (steady state before the step); heating load
+$q_{HVAC} = K_p (T_{sp} - y)$."""),
     code("""ss2 = models['controlled (K_p = 1e5 W/K)']
 As, Bs, Cs, Ds = ss2
 K_p = 1e5
@@ -214,9 +195,8 @@ print('share of the total drop of q_HVAC: ' + ', '.join(
 print(f'ventilation alone: G_v ΔT_o = {G_v * (10 - T_o2):.0f} W = {G_v * (10 - T_o2) / (qe[0] - q_end):.0%} of the drop')"""),
     md("""### Time step of the explicit method
 
-Step 2 with three time steps: below $T_{min}$ (chosen), between $T_{min}$ and $\\Delta t_{max}$ (whole seconds
-below $\\Delta t_{max}$, as in 03CubicBuilding), and 5 % above $\\Delta t_{max}$. The air temperature is shown for the
-first four time steps and after 1 h."""),
+Step 2 with $\\Delta t$ below $T_{min}$ (chosen), between $T_{min}$ and $\\Delta t_{max}$ (whole seconds, as in
+03CubicBuilding) and 5 % above $\\Delta t_{max}$. Air temperature for the first four steps and after 1 h:"""),
     code("""dt_max2 = tab.loc['Δt_max = 2 min T_i (s)', 'controlled (K_p = 1e5 W/K)']
 for dt in (dt2, np.floor(dt_max2), 1.05 * dt_max2):
     t, y, _ = simulate(ss2, u2, θ0, dt, 3600, 'explicit')
@@ -224,29 +204,27 @@ for dt in (dt2, np.floor(dt_max2), 1.05 * dt_max2):
           f'{", ".join(f"{v:.3f}" for v in y[0, :4])} … {y[0, -1]:.4g} °C after 1 h')"""),
     md("""## 4 Discussion
 
-- **Time step.** The fastest mode is the air in both models. Without controller its time constant is 515 s
-  (air with ventilation and surfaces); the explicit method is stable up to 17 min, the chosen time step is 8 min.
-  With the P-controller the time constant of the air is 8 s ($C_{air}/(K_p + \\sum G)$): the explicit method needs a
-  time step below 16 s, the chosen one is 7 s. With 15 s the solution oscillates from one time step to the next, with
-  a time step 5 % above $\\Delta t_{max}$ it diverges. The implicit method is stable for any time step: with
-  $\\Delta t$ = 1 h it gives the slow part of step 2 correctly, but not the first hour.
-- **Settling time.** The largest time constant is 17.6 d without controller and 7.9 d with controller; the slowest
-  mode is in the concrete of the floor above the basement. Four time constants give a settling time of 70 d and 31 d.
-  The controller shortens the time constants because it fixes the air temperature.
-- **Step 1 (free-floating).** All temperatures go to 10 °C, the steady state of Assignment 2 (case 1). At the end of
-  the settling time the air is at 9.85 °C (98 % of the step), 95 % is reached after 50 d. The outer insulation mesh
-  and the glass follow the outdoor temperature within hours, but only up to about 7.5 °C and 6 °C; the rest
-  follows with the concrete, in days to weeks. The air is coupled more strongly to the concrete (through the inner
-  surfaces) than to the outdoor air (ventilation), so it follows the slow concrete. Explicit and implicit solutions
-  differ by at most 0.13 K.
-- **Step 2 (controlled).** The air stays at 21 °C (deviation below 0.06 K), the controller takes the step. The
-  heating load falls from 5.5 kW to 2.6 kW, the steady state for the new inputs. About a quarter of the drop is
-  immediate (26 % after the first time step), mainly the ventilation, which has no capacity ($G_v \\Delta T_o$ =
-  0.86 kW, 30 % of the drop; part of it first goes into the surfaces). The windows follow within hours (42 % after
-  1 h), the walls, the roof and the floor in days (73 % after 1 d, 98 % after 7 d), because the change of the outdoor
-  temperature first has to pass the insulation and the concrete. Both zones respond in the same way.
-- **Limits of the model.** The P-controller is ideal: unlimited power, heating and cooling, no dead-band. Step
-  inputs are only a test; the response to weather (Assignment 4) needs time-varying inputs."""),
+**Time step.** The fastest mode is the air. Free-floating, $T_{min}$ = 515 s (ventilation and surfaces), so explicit
+Euler is stable up to 17 min; 8 min is used. With the controller, $T_{min}$ = 8 s ($C_{air}/(K_p + \\sum G)$), the limit
+is 16 s and 7 s is used. At 15 s the solution oscillates, 5 % above $\\Delta t_{max}$ it diverges. Implicit Euler with
+1 h gets the slow part of step 2 right but not the first hour.
+
+**Settling time.** The largest time constant, in the floor concrete above the basement, is 17.6 d free-floating and
+7.9 d controlled, giving 70 d and 31 d. The controller shortens it by fixing the air temperature.
+
+**Step 1.** All temperatures reach 10 °C, the steady state of Assignment 2 (case 1). The air ends at 9.85 °C (98 %),
+with 95 % after 50 d. Outer insulation and glass react within hours, but only to about 7.5 °C and 6 °C; the rest
+follows the concrete over days to weeks. The air is coupled more strongly to the concrete (inner surfaces) than to
+outdoors (ventilation), so it follows the concrete. Explicit and implicit differ by at most 0.13 K.
+
+**Step 2.** The air stays at 21 °C (within 0.06 K). The heating load falls from 5.5 kW to 2.6 kW. 26 % of the drop
+comes in the first time step, mainly from the ventilation, which has no capacity ($G_v \\Delta T_o$ = 0.86 kW, 30 % of
+the drop, part of it first going into the surfaces). The windows follow within hours (42 % after 1 h), walls, roof and
+floor within days (73 % after 1 d, 98 % after 7 d), since the change must pass insulation and concrete. Both zones
+respond identically.
+
+**Limits.** The P-controller is ideal (unlimited power, heating and cooling, no dead-band). Weather response
+(Assignment 4) needs time-varying inputs."""),
 ]
 
 nb = nbf.v4.new_notebook()

@@ -9,20 +9,18 @@ cells = [
 
 **Team:** _Valerio Paganini_
 
-Intermediate submission of the project (course *dm4bem*, Ch. Ghiaus). This notebook uses the thermal circuit of
-Assignment 1 ([Assignment1_Model.ipynb](Assignment1_Model.ipynb), Figure 1 there): 155 temperature nodes,
-191 branches, two zones (south and north half) coupled by an interior wall and a closed door.
+Intermediate submission, *dm4bem* (Ch. Ghiaus). Thermal circuit of Assignment 1
+([Assignment1_Model.ipynb](Assignment1_Model.ipynb), Figure 1): 155 nodes, 191 branches, two zones (south and
+north half) coupled by an interior wall and a closed door.
 
-Content, as in the list of the assignment:
-
-1. matrices $A$, $G$ and $C$ of the system of differential-algebraic equations (DAE) in Python,
-2. values of the inputs (temperature sources $b$ and flow-rate sources $f$),
-3. steady-state response of the DAE,
-4. matrices $A_s$, $B_s$, $C_s$, $D_s$ of the state-space representation,
-5. input vector $u = [b_T^T, f_Q^T]^T$,
-6. steady-state response of the state-space representation,
-7. comparison of the two results,
-8. visual check of the matrices (addition)."""),
+1. DAE matrices $A$, $G$, $C$
+2. inputs $b$, $f$
+3. steady state of the DAE
+4. state-space matrices $A_s$, $B_s$, $C_s$, $D_s$
+5. input vector $u = [b_T^T, f_Q^T]^T$
+6. steady state of the state-space model
+7. comparison
+8. visual check of the matrices (addition)"""),
     code("""import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -30,9 +28,9 @@ import dm4bem
 from IPython.utils import io"""),
     md("""## 1 Matrices $A$, $G$ and $C$ of the DAE
 
-The matrices are written in Python in Assignment 1. That notebook is run here without showing its outputs; it
-defines the incidence matrix `A` (191 × 155), the diagonal matrices `G` (191 × 191, W/K) and `C` (155 × 155, J/K),
-the vectors of pointers `b`, `f`, `y` and the list `branches` (from node, to node, conductance, temperature source)."""),
+Assignment 1 is run silently. It defines the incidence matrix `A` (191 × 155), the diagonal matrices `G`
+(191 × 191, W/K) and `C` (155 × 155, J/K), the pointer vectors `b`, `f`, `y` and the list `branches`
+(from node, to node, conductance, temperature source)."""),
     code("""with io.capture_output():                   # model of Assignment 1, its outputs are not shown
     %run Assignment1_Model.ipynb
 
@@ -45,26 +43,18 @@ print(f'{int(b_ptr.sum())} temperature sources, {int(f_ptr.sum())} flow-rate sou
 print(f'P-controllers on branches {[f"q{k}" for k in k_ctrl]}')"""),
     md("""## 2 Inputs: temperature sources $b$ and flow-rate sources $f$
 
-Three cases are calculated.
+*Case 1, model test* (as in 03CubicBuilding): $K_p = 0$, $T_o = T_{bsmt} = 10$ °C, $T_{sp} = 20$ °C (no effect),
+no flow-rate sources. All nodes must reach 10 °C; this can falsify the model but not prove it.
 
-**Case 1 – test of the model** (as in 03CubicBuilding): controller off ($K_p = 0$), outdoor and basement temperature
-$T_o = T_{bsmt} = 10$ °C, set-point $T_{sp} = 20$ °C (without effect when $K_p = 0$), all flow-rate sources zero. In
-steady state all temperatures must then be 10 °C. This is a test that can show that the model is wrong
-(falsification); passing it does not prove that the model is right.
+*Case 2, design heating load*: $T_o = -7.2$ °C, SIA design value for Chur (assumption);
+$T_{bsmt} = 20 - 0.7\\,(20 - T_o) = 0.96$ °C (hypothesis 5, $T_{o,24h} = T_o$); $T_{sp} = 21$ °C in both zones;
+$K_p = 10^5$ W/K; no sun, no internal gains.
 
-**Case 2 – design heating load**: design outdoor temperature of the SIA climate station Chur $T_o = -7.2$ °C
-(assumption), basement $T_{bsmt} = 20 - 0.7\\,(20 - T_o) = 0.96$ °C (hypothesis 5 of Assignment 1, with
-$T_{o,24h} = T_o$ in steady state), set-point $T_{sp} = 21$ °C in both zones, P-controller active with
-$K_p = 10^5$ W/K, no solar radiation and no internal gains.
+*Case 3, zone 2 set-back*: case 2 plus full-load gains in zone 1 (hypothesis 9; SIA 2024 room type 3.01,
+assumption): 84 W per person at 14 m² per person, equipment 11 W/m², lighting 9.72 W/m², 6.0 kW in total on
+$\\theta_{71}$. Zone 2 unoccupied, $T_{sp,2} = 18$ °C (hypothesis 12).
 
-**Case 3 – zone 1 occupied, zone 2 in set-back**: as case 2, but with the internal gains of zone 1 at full load
-(hypothesis 9; SIA 2024 room type 3.01, assumption): occupants 84 W per person at 14 m² per person, equipment
-11 W/m², lighting 9.72 W/m², together 6.0 kW on the air node $\\theta_{71}$. Zone 2 is unoccupied, with the set-back
-set-point $T_{sp,2} = 18$ °C (hypothesis 12). This case has a flow-rate source and different set-points in the two
-zones.
-
-The functions below give the vectors $b$ (°C, one value per branch) and $f$ (W, one value per node) and the
-conductance matrix with the chosen gain of the P-controllers."""),
+$b$ is in °C per branch, $f$ in W per node."""),
     code("""def inputs(T_o, T_bsmt, T_sp, Q=None):
     \"\"\"Values of the temperature sources b (°C) and of the flow-rate sources f (W).
 
@@ -116,10 +106,10 @@ $$\\theta_{ss} = (A^T G A)^{-1}(A^T G b + f), \\qquad q_{ss} = G(-A\\theta_{ss} 
     θ = c['θ']
     print(f'{name}: θ min / max = {θ.min():.4f} / {θ.max():.4f} °C, '
           f'air θ{air1} = {θ[air1]:.4f} °C, θ{air2} = {θ[air2]:.4f} °C')"""),
-    md("""Case 1 gives 10.00 °C in every node: the model passes the test.
+    md("""Case 1 gives 10.00 °C in every node, so the model passes the test.
 
-For case 2, the temperatures through the south wall of zone 1 (nodes $\\theta_0 \\dots \\theta_{12}$) show that almost
-all the temperature difference is in the insulation:"""),
+Case 2, south wall of zone 1 (nodes $\\theta_0 \\dots \\theta_{12}$): almost the whole temperature drop is in the
+insulation."""),
     code("""(m1, w1), (m2, w2) = wall                                          # layers of the external wall (Assignment 1)
 x = np.r_[np.arange(5) * w1 / 4, w1 + np.arange(1, 9) * w2 / 8]    # m, position of θ0 … θ12 from the outside
 θ = cases['case 2: design heating']['θ']
@@ -131,9 +121,8 @@ ax.axhline(θ[air1], color='tab:red', ls='--', label=f'air θ{air1}')
 ax.set(xlabel='x from the outer surface, m', ylabel='θ, °C', title='Case 2: steady-state temperatures in the wall')
 ax.legend(fontsize=8)
 plt.show()"""),
-    md("""Heat losses of case 2: the flow rate in the branch of a temperature source is the heat that flows from that
-source into the building, so $-q$ is the heat loss through the element. In steady state without gains, the sum of
-the losses equals the heat supplied by the two P-controllers (heating load)."""),
+    md("""Heat losses, case 2. The flow in a temperature-source branch is the heat from the source into the building,
+so $-q$ is the loss through the element. Without gains, the losses sum to the heat of the two P-controllers."""),
     code("""q = cases['case 2: design heating']['q']
 elements = {'wall S/N': 0, 'window S/N': 15, 'wall E': 19, 'window E': 34, 'wall W': 38, 'window W': 53,
             'roof': 57, 'floor (basement)': 72, 'ventilation': 87}
@@ -153,9 +142,8 @@ print(f'between the zones: conduction through the interior wall (q179–q186) ma
 print(f'long-wave star node θ{rm1} = {θ[rm1]:.2f} °C, operative temperature ≈ (θ{air1} + θ{rm1}) / 2 = '
       f'{(θ[air1] + θ[rm1]) / 2:.2f} °C')
 loss.round(0)"""),
-    md("""Case 3: energy balance of each zone. In steady state the conduction through the interior wall is the same in
-all its branches ($q_{179} = \\dots = q_{186}$); together with the door $q_{190}$ it is the heat that zone 1 gives
-to zone 2."""),
+    md("""Energy balance of each zone, case 3. In steady state $q_{179} = \\dots = q_{186}$ through the interior wall;
+this plus the door $q_{190}$ is the heat from zone 1 to zone 2."""),
     code("""q, θ = cases['case 3: zone 2 set-back']['q'], cases['case 3: zone 2 set-back']['θ']
 loss1 = -sum(q[k] for k in elements.values())           # zone 1 to outdoor and basement
 loss2 = -sum(q[k + 89] for k in elements.values())      # zone 2 to outdoor and basement
@@ -167,8 +155,8 @@ print(f'zone 2: heating {q[k_ctrl[1]]:.0f} W + from zone 1 {q12:.0f} W = losses 
 print(f'zone 1 to zone 2: interior wall {q[179]:.0f} W (q179 … q186), door {q[190]:.1f} W (q190)')"""),
     md("""## 4 State-space representation
 
-`dm4bem.tc2ss` eliminates the nodes without capacity. It needs the pointers $b$, $f$, $y$ (1 = source or output),
-not the values. Because $G$ contains $K_p$, the state-space matrices are computed for each case."""),
+`dm4bem.tc2ss` eliminates the nodes without capacity and takes the pointers $b$, $f$, $y$, not the values. $G$
+contains $K_p$, so the matrices are computed per case."""),
     code("""for name, c in cases.items():
     c['ss'] = dm4bem.tc2ss(A, c['G'], C, b_ptr, f_ptr, y_ptr)
 As, Bs, Cs, Ds = cases['case 2: design heating']['ss']
@@ -177,10 +165,9 @@ print(f'Bs {Bs.shape}: {Bs.shape[1]} inputs = {int(b_ptr.sum())} temperature sou
 print(f'Cs {Cs.shape}, Ds {Ds.shape}: {Cs.shape[0]} outputs (air temperatures)')"""),
     md("""## 5 Input vector $u = [b_T^T, f_Q^T]^T$
 
-$b_T$ holds the values of $b$ on the branches with a temperature source (pointer $b_k = 1$), in the order of the
-branches; $f_Q$ the values of $f$ on the nodes with a flow-rate source (pointer $f_i = 1$), in the order of the nodes.
-This is the order of the inputs in `dm4bem.tc2ss`. A source can have the value zero: in cases 1 and 2 all flow-rate
-sources are zero, in case 3 only the internal gains of zone 1 on $\\theta_{71}$ are not zero."""),
+$b_T$ contains $b$ on the branches with $b_k = 1$ (branch order), $f_Q$ contains $f$ on the nodes with $f_i = 1$
+(node order), matching the input order of `dm4bem.tc2ss`. All flow-rate sources are zero in cases 1 and 2; in
+case 3 only the internal gains on $\\theta_{71}$ are non-zero."""),
     code("""u_names = [f'b: q{k} ({src[k]})' for k in np.flatnonzero(b_ptr)] + \\
           [f'f: θ{i} ({"+".join(flow[i])})' for i in np.flatnonzero(f_ptr)]
 for name, c in cases.items():
@@ -201,43 +188,31 @@ $$y_{ss} = (-C_s A_s^{-1} B_s + D_s)\\, u$$"""),
     err = np.max(np.abs(c['θ'][y_ptr == 1] - c['y_ss']))
     print(f'{name}: DAE θ{air1} = {c["θ"][air1]:.6f} °C, θ{air2} = {c["θ"][air2]:.6f} °C | '
           f'state space y_ss = {c["y_ss"][0]:.6f}, {c["y_ss"][1]:.6f} °C | max. error {err:.1e} °C')"""),
-    md("""The air temperatures from the DAE and from the state-space representation agree to the numerical precision
-(error below $10^{-12}$ °C) in all three cases. Case 3 has a flow-rate source and different set-points in the two
-zones, so the comparison also checks the order of the flow-rate sources in $u$ and the coupling of the zones; only
-sources with the same value (e.g. two $T_o$, or two flow-rate sources equal to zero) could be exchanged unnoticed.
+    md("""Both models agree to below $10^{-12}$ °C. Case 3 also checks the order of the flow-rate sources in $u$; only
+sources of equal value (e.g. two $T_o$) could be swapped unnoticed.
 
-**Discussion**
+### Discussion
 
-- Case 1 passes the test: with $T_o = T_{bsmt} = 10$ °C, no flow-rate sources and the controller off ($K_p = 0$),
-  every node is at 10 °C.
-- Case 2: with $K_p = 10^5$ W/K the air temperature stays 0.06 K below the set-point of 21 °C: the P-controller needs
-  a small error to deliver the heat, $T_{sp} - \\theta_a = q_{HVAC}/K_p$. The design heating load is 5.5 kW per zone,
-  24.6 W/m² of floor. The windows cause 40 % of the losses, the ventilation 25 %, the roof 16 %, the floor above the
-  basement 13 % and the insulated walls 5 %.
-- Case 2: the long-wave star node is at 18.8 °C, 2.2 K below the air, because the P-controller heats only the air.
-  A U-value assumes surroundings at air temperature on the inner side; here the radiant surroundings are colder, so
-  the transmission losses are about 5 % smaller than $U S\\,\\Delta T$ with the air temperature (floor 6 % with $U$
-  after EN ISO 6946, 7 % with $U$ of the circuit). The operative temperature is about 19.9 °C.
-- Case 2: both zones have the same geometry and, without solar radiation, the same temperatures: no heat flows
-  through the interior wall or the door. Inside each zone, the interior wall still exchanges heat with the air and,
-  by long-wave radiation, with the colder windows.
-- Case 3: the internal gains of 6.0 kW (26.7 W/m²) are larger than the losses of zone 1 to outdoor and basement
-  (5.5 kW). Zone 1 still needs about 0.1 kW of heating at the design outdoor temperature, because it gives about
-  0.6 kW to zone 2 (18 °C), almost all by conduction through the interior wall, only about 11 W through the closed
-  door. Zone 2 needs 4.4 kW."""),
+Case 2: the air is 0.06 K below the 21 °C set-point, the error the P-controller needs,
+$T_{sp} - \\theta_a = q_{HVAC}/K_p$. Design heating load 5.5 kW per zone (24.6 W/m²); windows 40 %, ventilation
+25 %, roof 16 %, floor 13 %, walls 5 %. Only the air is heated, so the star node is at 18.8 °C (2.2 K below the
+air) and the operative temperature about 19.9 °C. U-values assume surroundings at air temperature, so the
+transmission losses are about 5 % below $U S\\,\\Delta T$ (floor 6 % with $U$ after EN ISO 6946, 7 % with $U$ of
+the circuit). The identical zones have equal temperatures, so no heat crosses the interior wall or door; within a
+zone the interior wall still exchanges heat with the air and the colder windows.
+
+Case 3: the gains of 6.0 kW (26.7 W/m²) exceed the 5.5 kW losses of zone 1, but about 0.6 kW flows to zone 2
+(18 °C), nearly all through the wall and about 11 W through the door, so zone 1 still needs about 0.1 kW.
+Zone 2 needs 4.4 kW."""),
     md("""## 8 Visual check of the matrices
 
-Every non-zero entry is a dot (case 2, $K_p = 10^5$ W/K). The dashed lines separate zone 1, zone 2 and the
-interior wall (nodes $\\theta_0, \\theta_{73}, \\theta_{146}$; branches $q_0, q_{89}, q_{178}$) and, in $B_s$, the
-temperature sources $b_T$ from the flow-rate sources $f_Q$.
+Non-zero entries, case 2 ($K_p = 10^5$ W/K). Dashed lines mark zone 1, zone 2 and the interior wall (nodes
+$\\theta_0, \\theta_{73}, \\theta_{146}$; branches $q_0, q_{89}, q_{178}$) and, in $B_s$, $b_T$ | $f_Q$.
 
-- $A$: each branch (row) has a $-1$ at the node it leaves and a $+1$ at the node it enters; a branch from a
-  temperature source has only the $+1$. The layers of the walls give the staircases.
-- $A_s$: the states are the 72 nodes with capacity, in the order of the nodes. Neighbouring meshes give the band
-  along the diagonal; the eliminated surfaces and star nodes couple the inner meshes, the glass and the air of a zone
-  with each other (blocks). Zone 1 and zone 2 are coupled only through the interior wall and the door.
-- $B_s$: which source acts on which state, e.g. $T_o$ on the outer insulation mesh, $T_{sp}$ and the internal gains
-  on the air."""),
+Rows of $A$ have $-1$ at the leaving and $+1$ at the entering node (source branches only $+1$). The 72 states of
+$A_s$ are the capacitive nodes in node order; neighbouring meshes form the band, the eliminated surfaces and star
+nodes form the blocks of each zone. $B_s$: $T_o$ acts on the outer insulation mesh, $T_{sp}$ and the gains on the
+air."""),
     code("""As, Bs, Cs, Ds = cases['case 2: design heating']['ss']
 states = np.flatnonzero(np.diag(C))                 # nodes with capacity = states, in the order of the nodes
 n_bT = int(b_ptr.sum())                             # number of temperature sources in u
@@ -266,15 +241,10 @@ for name in ('case 1: test', 'case 2: design heating'):
     lam = np.linalg.eigvals(cases[name]['ss'][0]).real
     print(f'{name}: time constants -1/λ of As from {-1 / lam.min():.0f} s to {-1 / lam.max() / 86400:.1f} d, '
           f'explicit Euler stable for Δt < 2/|λ|max = {2 / -lam.min():.0f} s')"""),
-    md("""The row of the air node $\\theta_{71}$ (zone 1) written out. Multiplied by the capacity of the air, the
-entries are conductances in W/K: the state equation of the air is the energy balance of the air node, with the
-surfaces eliminated. The diagonal entry is minus the sum of all conductances of the air node, so the row sums to
-zero (temperature sources included). The air is coupled directly to the inner concrete mesh of each element, to the
-glass, to the first mesh of the interior wall and, through the door, to the air of zone 2; the outdoor temperature
-acts directly only through the ventilation. The internal gains enter with $B_s \\cdot C_{air} = 1$: the whole flow
-rate goes into the air. Of the solar radiation $\\Phi_i$ absorbed on an inner surface only a small part (0.04 to 0.5)
-goes directly into the air; the rest goes into the inner mesh behind the surface and, by long-wave radiation, to the
-meshes and the glass of the other elements."""),
+    md("""Row of the air node $\\theta_{71}$ (zone 1). Times $C_{air}$ the entries are conductances in W/K (energy
+balance of the air); with the temperature sources the row sums to zero. $T_o$ acts directly only through
+ventilation, internal gains enter with $B_s \\cdot C_{air} = 1$. Of $\\Phi_i$ absorbed on an inner surface only
+0.04 to 0.5 reaches the air directly; the rest goes to the mesh behind and, radiatively, to the other elements."""),
     code("""def node_name(i):
     \"\"\"Element and layer of node θi (numbering of Assignment 1).\"\"\"
     if i >= 146:                                                   # interior wall θ146 … θ154
