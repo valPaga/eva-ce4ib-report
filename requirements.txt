@@ -1,0 +1,8 @@
+# Report Assignments 1–5 (also used by MyBinder)
+# the course library dm4bem.py does not run with numpy 2.x / pandas 3.x
+numpy==1.26.4
+pandas==2.2.3
+matplotlib==3.9.4
+scipy==1.13.1
+nbformat
+ipykernel
