@@ -34,6 +34,7 @@ control, ventilation, solar shading) in Assignment 4.
 | [Assignment 2 – Steady state](Assignment2_SteadyState.ipynb) | DAE and state-space representation, three cases, comparison, visual check of the matrices | design heating load 5.5 kW per zone (24.6 W/m²) at −7.2 °C; DAE and state space agree to $10^{-12}$ °C |
 | [Assignment 3 – Step response](Assignment3_StepResponse.ipynb) | time constants, time step, settling time, explicit and implicit Euler | time constants 8 s to 17.6 d; $\\Delta t_{max}$ = 16 s with the P-controller; settling time 31 to 70 d |
 | [Assignment 4 – Response to weather](Assignment4_Weather.ipynb) | one year with weather, internal gains and blinds; P-controller, dead-band controller, bypass and night ventilation, humid air, solar shading, pre-heating, operative temperature, model predictive control | dead-band: heating 6.9, cooling 23.9 kWh/(m²·a); with heat-recovery bypass and night ventilation cooling 7.3 kWh/(m²·a) (+0.4 latent), 19.7 without blinds; pre-heating ramp: −20 % peak heating load; MPC with peak cost: −34 % peak heating load in a winter week |
+| [Presentation](Presentation.ipynb) | 10-minute summary as slides (`jupyter nbconvert --to slides --no-input Presentation.ipynb`) | – |
 
 ## Reproducibility
 

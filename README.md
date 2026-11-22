@@ -11,6 +11,7 @@ Ch. Ghiaus), HS26. Start with [`index.ipynb`](index.ipynb), then:
 2. [Assignment2_SteadyState.ipynb](Assignment2_SteadyState.ipynb) – DAE, state space, steady state
 3. [Assignment3_StepResponse.ipynb](Assignment3_StepResponse.ipynb) – time constants, time step, step response
 4. [Assignment4_Weather.ipynb](Assignment4_Weather.ipynb) – one year with weather, dead-band, night ventilation, humid air and MPC
+5. [Presentation.ipynb](Presentation.ipynb) – 10-minute summary as slides
 
 Environment in `environment.yml` (MyBinder) and `requirements.txt` (pip). `dm4bem.py` is a copy of the course
 library (MIT), the weather file in `daten/` is from [climate.onebuilding.org](https://climate.onebuilding.org).
