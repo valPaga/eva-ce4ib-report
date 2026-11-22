@@ -8,7 +8,7 @@ cells = [
     md("""# Single-storey two-zone office building in Chur – thermal model and simulation
 
 **Author:** Valerio Paganini  
-**Date:** 30 October 2026
+**Date:** 22 November 2026
 
 Report for the course *Dynamic Models for Building Energy Management* (dm4bem, Ch. Ghiaus), HS26.
 
@@ -25,15 +25,15 @@ Weather: Chur, TMYx 2004–2018.
 ## Contents
 
 The building description, hypotheses and thermal model are in Assignment 1, the DAE and state-space model in
-Assignments 1–2, steady state in Assignment 2, dynamic results in Assignments 3–4 and the control optimization
-(dead-band, MPC) in Assignment 4.
+Assignments 1–2, steady state in Assignment 2, dynamic results in Assignments 3–4 and the optimization (HVAC
+control, ventilation, solar shading) in Assignment 4.
 
 | Notebook | Content | Main results |
 |---|---|---|
 | [Assignment 1 – Model](Assignment1_Model.ipynb) | building, hypotheses, thermal circuit (155 nodes, 191 branches), matrices $A$, $G$, $C$, vectors $b$, $f$, $y$ | figure with the whole circuit and its numbering |
 | [Assignment 2 – Steady state](Assignment2_SteadyState.ipynb) | DAE and state-space representation, three cases, comparison, visual check of the matrices | design heating load 5.5 kW per zone (24.6 W/m²) at −7.2 °C; DAE and state space agree to $10^{-12}$ °C |
 | [Assignment 3 – Step response](Assignment3_StepResponse.ipynb) | time constants, time step, settling time, explicit and implicit Euler | time constants 8 s to 17.6 d; $\\Delta t_{max}$ = 16 s with the P-controller; settling time 31 to 70 d |
-| [Assignment 4 – Response to weather](Assignment4_Weather.ipynb) | one year with weather, internal gains and blinds; P-controller, dead-band controller, bypass and night ventilation, humid air, model predictive control | dead-band: heating 6.9, cooling 23.9 kWh/(m²·a); with heat-recovery bypass and night ventilation cooling 7.3 kWh/(m²·a) (+0.4 latent); MPC with peak cost: −34 % peak heating load in a winter week |
+| [Assignment 4 – Response to weather](Assignment4_Weather.ipynb) | one year with weather, internal gains and blinds; P-controller, dead-band controller, bypass and night ventilation, humid air, solar shading, model predictive control | dead-band: heating 6.9, cooling 23.9 kWh/(m²·a); with heat-recovery bypass and night ventilation cooling 7.3 kWh/(m²·a) (+0.4 latent), 19.7 without blinds; MPC with peak cost: −34 % peak heating load in a winter week |
 
 ## Reproducibility
 

@@ -139,30 +139,36 @@ $\\theta_0, \\theta_{15}, \\theta_{30}$ (walls S, E, W), $\\theta_{45}$ (roof); 
 \\theta_{43}$; inner surfaces $\\theta_{12}, \\theta_{27}, \\theta_{42}$ (walls), $\\theta_{57}$ (roof),
 $\\theta_{70}$ (floor); interior wall $\\theta_{146}$ (zone 1 side), $\\theta_{154}$ (zone 2 side); air
 $\\theta_{71}$. The controller sets $T_{sp}$ in the time loop."""),
-    code("""U = np.zeros((n, len(u_names)))
-for k in bT:                                                     # temperature sources
-    U[:, jb[k]] = {'T_o': w['T_o'].to_numpy(), 'T_bsmt': T_bsmt}.get(src[k], 0.0)
-j_sp = [jb[k] for k in k_ctrl]                                   # columns of T_sp,1 and T_sp,2
+    code("""j_sp = [jb[k] for k in k_ctrl]                                   # columns of T_sp,1 and T_sp,2
 
-Q_sol = {}                                                       # W, transmitted solar radiation per zone
-for z, n0, o1, iw in ((1, 0, 'S', 146), (2, 73, 'N', 154)):
-    Q_t = np.zeros(n)
-    for o, size, k_out, k_g in ((o1, 'long', 0, 13), ('E', 'short', 15, 28), ('W', 'short', 30, 43)):
-        E_o = w[f'E_{o}'].to_numpy()
-        S_g = S_win[size] * (1 - frame)                          # glass area
-        shade = np.where(blind[o], F_c, 1.0)
-        U[:, jf[n0 + k_out]] += alpha_wall * S_wall[size] * E_o                 # Φo, outer wall surface
-        U[:, jf[n0 + k_g]] += alpha_g * F_sol * shade * S_g * E_o               # Φa, glass
-        Q_t += tau_g * F_sol * shade * S_g * E_o
-    U[:, jf[n0 + 45]] += alpha_roof * S_plan * w['E_roof'].to_numpy()           # Φo, roof
-    inner = {n0 + 12: S_wall['long'], n0 + 27: S_wall['short'], n0 + 42: S_wall['short'],
-             n0 + 57: S_plan, iw: S_iw}                                         # inner surfaces except the floor
-    U[:, jf[n0 + 70]] += 0.5 * Q_t                                              # Φi, floor
-    for node, S in inner.items():
-        U[:, jf[node]] += 0.5 * Q_t * S / sum(inner.values())                   # Φi, other inner surfaces
-    U[:, jf[n0 + 71]] += S_plan * q_int                                         # internal gains, air
-    Q_sol[z] = Q_t
-U = pd.DataFrame(U, index=t, columns=u_names)
+
+def inputs(blind):
+    \"\"\"Input matrix U (DataFrame) and transmitted solar radiation per zone for a blind schedule.\"\"\"
+    U = np.zeros((n, len(u_names)))
+    for k in bT:                                                 # temperature sources
+        U[:, jb[k]] = {'T_o': w['T_o'].to_numpy(), 'T_bsmt': T_bsmt}.get(src[k], 0.0)
+    Q_sol = {}                                                   # W, transmitted solar radiation per zone
+    for z, n0, o1, iw in ((1, 0, 'S', 146), (2, 73, 'N', 154)):
+        Q_t = np.zeros(n)
+        for o, size, k_out, k_g in ((o1, 'long', 0, 13), ('E', 'short', 15, 28), ('W', 'short', 30, 43)):
+            E_o = w[f'E_{o}'].to_numpy()
+            S_g = S_win[size] * (1 - frame)                          # glass area
+            shade = np.where(blind[o], F_c, 1.0)
+            U[:, jf[n0 + k_out]] += alpha_wall * S_wall[size] * E_o                 # Φo, outer wall surface
+            U[:, jf[n0 + k_g]] += alpha_g * F_sol * shade * S_g * E_o               # Φa, glass
+            Q_t += tau_g * F_sol * shade * S_g * E_o
+        U[:, jf[n0 + 45]] += alpha_roof * S_plan * w['E_roof'].to_numpy()           # Φo, roof
+        inner = {n0 + 12: S_wall['long'], n0 + 27: S_wall['short'], n0 + 42: S_wall['short'],
+                 n0 + 57: S_plan, iw: S_iw}                                         # inner surfaces except the floor
+        U[:, jf[n0 + 70]] += 0.5 * Q_t                                              # Φi, floor
+        for node, S in inner.items():
+            U[:, jf[node]] += 0.5 * Q_t * S / sum(inner.values())                   # Φi, other inner surfaces
+        U[:, jf[n0 + 71]] += S_plan * q_int                                         # internal gains, air
+        Q_sol[z] = Q_t
+    return pd.DataFrame(U, index=t, columns=u_names), Q_sol
+
+
+U, Q_sol = inputs(blind)
 U.loc[f'{year}-07-17':f'{year}-07-17 23:45'].iloc[::8].loc[:, lambda d: d.abs().sum() > 0].round(0).T"""),
     code("""wk = slice(f'{year}-07-17', f'{year}-07-23')                     # a summer week (Monday to Sunday)
 fig, axs = plt.subplots(3, 1, figsize=(12, 7), sharex=True)
@@ -382,6 +388,20 @@ for ax in axs:
     ax.grid(alpha=0.3)
 plt.tight_layout()
 plt.show()"""),
+    md("""### Solar shading
+
+The blind rule of section 2 (closed above 200 W/m² on the façade) against no blinds and against closing already
+above 100 W/m², each with dead-band, bypass and night ventilation."""),
+    code("""rules = {'no blinds': {o: np.zeros(n, bool) for o in blind},
+         'blinds > 100 W/m²': {o: (w[f'E_{o}'].to_numpy() > 100) & (T_o24 > 12) for o in blind}}
+opt = {'blinds > 200 W/m² (reference)': fig_tab['dead-band + ventilation']}
+for name, bl in rules.items():
+    r, _ = simulate('dead-band', inputs(bl)[0], x0, vent=True)
+    opt[name] = key_figures(r.iloc[k0:])
+print('blinds > 100 W/m² closed (h/a): ' + ', '.join(f'{o} {rules["blinds > 100 W/m²"][o][k0:].sum() * dt / 3600:.0f}'
+                                                     for o in blind))
+pd.DataFrame(opt).loc[['heating, kWh/m²', 'cooling, kWh/m²', 'peak cooling (sum of zones), W/m²',
+                      'over-heating, Kh']].round(1)"""),
     md("""A winter and a summer week (Monday to Sunday), P-controller and dead-band. Grey band: between heating and
 cooling set-point."""),
     code("""weeks = {'winter week': (f'{year}-01-16', f'{year}-01-22 23:45'),
@@ -571,6 +591,11 @@ security limits) and fan energy is not counted.
 Humid air: the latent cooling is only 0.4 kWh/(m²·a), the same with and without night ventilation (dehumidified
 only during occupancy). The outdoor air in Chur is above 12 g/kg for 348 h a year (on 40 days), and only the
 excess during occupancy is removed. With latent load the cooling is 7.7 kWh/(m²·a).
+
+Solar shading: without blinds the cooling is 19.7 kWh/(m²·a) and the peak 37.1 W/m², almost three times the
+reference. Closing already above 100 W/m² halves the cooling to 3.9 kWh/(m²·a), but the blinds are then closed
+about 1600 h a year on every façade, also on the north side. The lighting is a fixed schedule in the model, so
+the extra electric lighting this would need is not counted; 200 W/m² stays the reference.
 
 Time step: 5 min instead of 15 min changes the energy by less than 1 % and the air temperature by at most 0.4 K.
 
