@@ -229,6 +229,8 @@ V_vent = {'normal': V_mech + V_inf, 'bypass': V_mech + V_inf,
           'night': V_mech + V_inf + n_night * V_air}             # m³/h per zone
 G_vent = {'normal': G_v, 'bypass': rho_c_air / 3600 * (V_mech + V_inf),
           'night': rho_c_air / 3600 * V_vent['night']}           # W/K per zone
+y_rm = np.zeros(len(y_ptr))
+y_rm[[rm1, rm2]] = 1                                             # outputs θ_rm,1 and θ_rm,2
 
 
 def discrete(on1, on2, vent='normal', dt_=dt):
@@ -239,8 +241,9 @@ def discrete(on1, on2, vent='normal', dt_=dt):
     for k in k_vent:
         G_K[k, k] = G_vent[vent]
     As, Bs, Cs, Ds = dm4bem.tc2ss(A, G_K, C, b_ptr, f_ptr, y_ptr)
+    _, _, Cr, Dr = dm4bem.tc2ss(A, G_K, C, b_ptr, f_ptr, y_rm)      # mean radiant (star) nodes, not states
     Phi = np.linalg.inv(np.eye(len(As)) - dt_ * As)
-    return {'Phi': Phi, 'Gam': Phi @ (dt_ * Bs), 'Cs': Cs}
+    return {'Phi': Phi, 'Gam': Phi @ (dt_ * Bs), 'Cs': Cs, 'Cr': Cr, 'Dr': Dr}
 
 
 models = {(i, j): discrete(i, j) for i in (0, 1) for j in (0, 1)}
@@ -259,6 +262,7 @@ def simulate(control, U, x0, k_start=0, k_end=None, mods=models, sched=None, ven
     k_end = k_end or len(Ua)
     m_ = k_end - k_start
     y, q, X = np.zeros((m_, 2)), np.zeros((m_, 2)), np.zeros((m_, len(x0)))
+    op = np.zeros((m_, 2))
     modes = np.full(m_, 'normal', dtype=object)
     T_o = Ua[:, jb[k_vent[0]]]
     done = False
@@ -294,7 +298,9 @@ def simulate(control, U, x0, k_start=0, k_end=None, mods=models, sched=None, ven
         x = m['Phi'] @ x + m['Gam'] @ u
         y[i] = Cs @ x                                            # air at the end of the step
         q[i] = K_on * np.array(on) * (sp - y[i])
+        op[i] = (y[i] + m['Cr'] @ x + m['Dr'] @ u) / 2           # operative temperature
     return pd.DataFrame({'θ1': y[:, 0], 'θ2': y[:, 1], 'q1': q[:, 0], 'q2': q[:, 1],
+                         'θop1': op[:, 0], 'θop2': op[:, 1],
                          'T_h': T_h[k_start:k_end], 'T_c': T_c[k_start:k_end],
                          'occupied': occupied[k_start:k_end], 'vent': modes}, index=U.index[k_start:k_end]), X
 
@@ -320,6 +326,11 @@ def key_figures(r):
     under = np.clip(r[['T_h']].to_numpy() - 0.5 - θ, 0, None) * occ   # K below T_h - 0.5 K during occupancy
     over = np.clip(θ - r[['T_c']].to_numpy() - 0.5, 0, None) * occ     # K above T_c + 0.5 K
     hours = len(r) * dt / 3600
+    kf = {}
+    if 'θop1' in r:                                              # comfort with the operative temperature
+        θop = r[['θop1', 'θop2']].to_numpy()
+        kf['under-heating θ_op, Kh'] = (np.clip(r[['T_h']].to_numpy() - 0.5 - θop, 0, None) * occ).sum() * dt / 3600
+        kf['over-heating θ_op, Kh'] = (np.clip(θop - r[['T_c']].to_numpy() - 0.5, 0, None) * occ).sum() * dt / 3600
     return pd.Series({
         'heating, kWh': np.clip(q, 0, None).sum() * dt / 3.6e6,
         'cooling, kWh': -np.clip(q, None, 0).sum() * dt / 3.6e6,
@@ -328,7 +339,7 @@ def key_figures(r):
         'peak heating (sum of zones), W/m²': q.max(axis=0).sum() / S_tot,
         'peak cooling (sum of zones), W/m²': -q.min(axis=0).sum() / S_tot,
         'under-heating, Kh': under.sum() * dt / 3600,
-        'over-heating, Kh': over.sum() * dt / 3600})
+        'over-heating, Kh': over.sum() * dt / 3600, **kf})
 
 
 fig_tab = pd.DataFrame({c: key_figures(r) for c, r in res.items()})
@@ -402,6 +413,42 @@ print('blinds > 100 W/m² closed (h/a): ' + ', '.join(f'{o} {rules["blinds > 100
                                                      for o in blind))
 pd.DataFrame(opt).loc[['heating, kWh/m²', 'cooling, kWh/m²', 'peak cooling (sum of zones), W/m²',
                       'over-heating, Kh']].round(1)"""),
+    md("""### Pre-heating
+
+The heating set-point jumps from 18 to 21 °C at 07:00, which gives the peak heating load. Variant (assumption):
+on working days the heating set-point rises linearly from 18 °C at 05:00 to 21 °C at 07:00 (1.5 K/h); dead-band,
+bypass and night ventilation as before. A plain jump to 21 °C at 05:00 only moves the peak, because the
+controller has no power limit."""),
+    code("""T_h_pre = np.where(workday & (h >= 5) & (h < 7), 18.0 + 1.5 * (h - 5), T_h)     # ramp 18 -> 21 °C, 05:00-07:00
+r, _ = simulate('dead-band', U, x0, sched=(T_h_pre, T_c, occupied), vent=True)
+res['dead-band + ventilation + pre-heating'] = r.iloc[k0:]
+cases = ['dead-band', 'dead-band + ventilation', 'dead-band + ventilation + pre-heating']
+pd.DataFrame({c: key_figures(res[c]) for c in cases}).loc[[
+    'heating, kWh/m²', 'cooling, kWh/m²', 'peak heating (sum of zones), W/m²', 'peak cooling (sum of zones), W/m²',
+    'under-heating, Kh', 'over-heating, Kh', 'under-heating θ_op, Kh', 'over-heating θ_op, Kh']].round(1)"""),
+    md("""Comfort is checked above with the air temperature (the controlled variable) and with the operative
+temperature $\\theta_{op} = (\\theta_{air} + \\theta_{rm})/2$, the mean of the air and the mean radiant (star)
+node. $\\theta_{rm}$ is not a state; it is an output $y = C_s\\,\\theta_C + D_s\\,u$ of the same state-space model.
+
+### Load duration curve
+
+Hourly mean of $q_{HVAC}$ of both zones, sorted: heating above zero, cooling below."""),
+    code("""fig, ax = plt.subplots(figsize=(10, 4))
+for c in cases:
+    qh = res[c][['q1', 'q2']].sum(axis=1).resample('h').mean() / S_tot
+    hp, hc = np.sort(qh.clip(lower=0).to_numpy())[::-1], np.sort(qh.clip(upper=0).to_numpy())
+    ax.plot(np.arange(len(hp)), hp, lw=1.2, label=c)
+    ax.plot(np.arange(len(hc)), hc, lw=1.2, color=ax.lines[-1].get_color())
+ax.axhline(0, color='k', lw=0.6)
+ax.set(xlim=(0, 3000), xlabel='hours per year', ylabel='q_HVAC, W/m² (> 0 heating)',
+       title='Load duration curves, both zones')
+ax.legend(fontsize=8)
+ax.grid(alpha=0.3)
+plt.show()
+for c in cases:
+    qh = res[c][['q1', 'q2']].sum(axis=1).resample('h').mean() / S_tot
+    print(f'{c}: heating {(qh > 0.5).sum()} h, above 10 W/m² {(qh > 10).sum()} h; '
+          f'cooling {(qh < -0.5).sum()} h, above 10 W/m² {(qh < -10).sum()} h')"""),
     md("""A winter and a summer week (Monday to Sunday), P-controller and dead-band. Grey band: between heating and
 cooling set-point."""),
     code("""weeks = {'winter week': (f'{year}-01-16', f'{year}-01-22 23:45'),
@@ -597,6 +644,17 @@ reference. Closing already above 100 W/m² halves the cooling to 3.9 kWh/(m²·a
 about 1600 h a year on every façade, also on the north side. The lighting is a fixed schedule in the model, so
 the extra electric lighting this would need is not counted; 200 W/m² stays the reference.
 
+Pre-heating: the ramp from 05:00 lowers the peak heating load from 38.6 to 30.7 W/m² (−20 %) for 0.3 kWh/(m²·a)
+more heating, much like the MPC with peak cost in the winter week, but with a fixed schedule.
+
+Operative temperature: the air is held within the set-points, the operative temperature is not. During occupancy
+it is 540 Kh a year more than 0.5 K below $T_h$, mostly in winter mornings when the walls and windows are still
+cold; pre-heating reduces this to 480 Kh. Above $T_c$ it is 75 Kh without and 4 Kh with night ventilation, since
+the cooled concrete lowers the radiant temperature. A controller on $\\theta_{op}$ would need more heating.
+
+Load duration: night ventilation cuts the hours with more than 10 W/m² cooling from 1186 to 280 h a year; heating
+above 10 W/m² occurs only about 160–210 h a year, so the peak is set by a few morning hours.
+
 Time step: 5 min instead of 15 min changes the energy by less than 1 % and the air temperature by at most 0.4 K.
 
 MPC: with energy only it matches the dead-band controller within 1 %, as both heat as late as possible. With the
@@ -606,7 +664,9 @@ demand charge would need the peak already reached as a constraint. The summer pe
 concrete costs more than it saves; night ventilation does this for free (above).
 
 Limits: ideal controllers (dead-band without power limit, MPC with 30 kW and perfect forecast), latent load from a
-simple moisture balance, MPC without bypass and night ventilation, convective gains, one typical year (weather about half an hour early, as values sit
+simple moisture balance, MPC without bypass and night ventilation, convective gains, solar gains reduced by a
+constant $F_{sol}$ instead of the real horizon of Chur and an angle-dependent glazing, no long-wave radiation to
+the sky, constant surface coefficients, $\\rho c$ of air at sea level (about 7 % high at 590 m), one typical year (weather about half an hour early, as values sit
 at the start of their hour and are interpolated), hypotheses of Assignment 1 (e.g. star network for long-wave
 radiation, constant coefficients)."""),
 ]
