@@ -46,6 +46,25 @@ plt.rcParams.update({'font.size': 12, 'axes.grid': True, 'grid.alpha': 0.3})""",
 - Weather Chur (TMYx 2004–2018), ventilation with heat recovery η = 0.75, set-points 21/26 °C occupied, 18/28 °C otherwise"""),
     code(r"""display(SVG('figures/Assignment1_Model.drawio.svg'))""", slide='subslide'),
 
+    md(r"""## Thermal network of zone 1
+
+<div style="display:flex; gap:28px; align-items:center">
+<img src="figures/Thermal_network_zone1.svg" style="height:540px">
+<div style="font-size:0.75em">
+<p>3 walls with windows, roof, floor and ventilation run from the outdoor (or basement) temperature to the air
+node θ<sub>71</sub>.</p>
+<p>Long-wave radiation between the inner surfaces goes to the star node θ<sub>rm</sub>.</p>
+<p>At the air node: internal gains, air capacity and the P-controller K<sub>p</sub> with set-point T<sub>sp</sub>.</p>
+<p>Zone 2 is the same; the zones are coupled through the concrete interior wall and the door.</p>
+</div></div>"""),
+    md(r"""## External wall and window (south, zone 1)
+
+<img src="figures/Thermal_network_wall.svg" style="width:100%">
+
+Wall: outdoor temperature source, outdoor surface, insulation (2 meshes) and concrete (4 meshes) with capacities,
+inner surface; convection to the air, long-wave radiation to $\theta_{rm}$; solar flow sources $\Phi_o$, $\Phi_i$.
+Window: glass node with small capacity and absorbed solar $\Phi_a$.""", slide='subslide'),
+
     md(r"""## Thermal model
 
 | | |
